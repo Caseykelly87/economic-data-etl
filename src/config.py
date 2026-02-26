@@ -44,3 +44,7 @@ BLS_SERIES = {
     "AVG_WAGES": "CES0500000003", # Avg Hourly Earnings
     "WAGE_INDEX": "CIU2020000000000I" # Employment Cost Index
 }
+
+# --- Metadata Storage ---
+DATA_METADATA_DIR = BASE_DIR / "data" / "metadata"
+DATA_METADATA_DIR.mkdir(parents=True, exist_ok=True)
