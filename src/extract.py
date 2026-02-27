@@ -1,3 +1,4 @@
+import functools
 import requests
 import json
 import logging
@@ -46,17 +47,18 @@ def get_storage_path(source, identifier):
 
 
 def fetch_with_retry(func):
-    """Retry decorator with exponential backoff."""
+    """Retry decorator with exponential backoff for transient network errors."""
+    @functools.wraps(func)
     def wrapper(*args, **kwargs):
         for attempt in range(3):
             try:
                 return func(*args, **kwargs)
-            except Exception as e:
+            except requests.exceptions.RequestException as e:
                 logging.warning(f"⚠️ Attempt {attempt+1} failed: {e}")
                 if attempt < 2:
                     time.sleep(2 ** attempt)
                 else:
-                    raise e
+                    raise
     return wrapper
 
 
@@ -96,7 +98,7 @@ def fetch_fred_data(series_id):
     old_hash = metadata.get("last_hash")
 
     if old_hash == new_hash:
-        logging.debug(f"No changes detected for FRED {series_id}")
+        logging.info(f"⏩ No changes detected for FRED {series_id}, skipping write")
         return
 
     filepath = get_storage_path("FRED", series_id)
