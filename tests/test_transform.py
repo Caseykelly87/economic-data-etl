@@ -155,3 +155,45 @@ def test_build_dim_series_bls_source_label():
     result = transform.build_dim_series(FRED_SERIES_MAP, BLS_SERIES_MAP)
     bls_rows = result[result["series_id"].isin(BLS_SERIES_MAP.values())]
     assert (bls_rows["source"] == "BLS").all()
+
+
+# ==========================================================
+# Fact Table Combiner Tests
+# Function under test: transform.combine_fact_tables(fred_frames, bls_frame)
+# ==========================================================
+
+def test_combine_fact_tables_returns_dataframe(raw_fred_json, raw_bls_json):
+    fred_df = transform.parse_fred_observations(raw_fred_json, "UNRATE", "UNRATE")
+    bls_df  = transform.parse_bls_batch(raw_bls_json, BLS_SERIES_MAP)
+    result  = transform.combine_fact_tables([fred_df], bls_df)
+    assert isinstance(result, pd.DataFrame)
+
+
+def test_combine_fact_tables_combines_both_sources(raw_fred_json, raw_bls_json):
+    fred_df = transform.parse_fred_observations(raw_fred_json, "UNRATE", "UNRATE")
+    bls_df  = transform.parse_bls_batch(raw_bls_json, BLS_SERIES_MAP)
+    result  = transform.combine_fact_tables([fred_df], bls_df)
+    assert set(result["source"].unique()) == {"FRED", "BLS"}
+
+
+def test_combine_fact_tables_row_count(raw_fred_json, raw_bls_json):
+    fred_df = transform.parse_fred_observations(raw_fred_json, "UNRATE", "UNRATE")
+    bls_df  = transform.parse_bls_batch(raw_bls_json, BLS_SERIES_MAP)
+    result  = transform.combine_fact_tables([fred_df], bls_df)
+    assert len(result) == len(fred_df) + len(bls_df)
+
+
+def test_combine_fact_tables_sorted_by_date(raw_fred_json, raw_bls_json):
+    fred_df = transform.parse_fred_observations(raw_fred_json, "UNRATE", "UNRATE")
+    bls_df  = transform.parse_bls_batch(raw_bls_json, BLS_SERIES_MAP)
+    result  = transform.combine_fact_tables([fred_df], bls_df)
+    dates   = result["date"].tolist()
+    assert dates == sorted(dates)
+
+
+def test_combine_fact_tables_accepts_multiple_fred_frames(raw_fred_json):
+    fred_df1 = transform.parse_fred_observations(raw_fred_json, "UNRATE",   "UNRATE")
+    fred_df2 = transform.parse_fred_observations(raw_fred_json, "FEDFUNDS", "MONEY_COST")
+    empty_bls = pd.DataFrame(columns=["series_id", "series_name", "date", "value", "source"])
+    result = transform.combine_fact_tables([fred_df1, fred_df2], empty_bls)
+    assert len(result) == len(fred_df1) + len(fred_df2)

@@ -112,3 +112,59 @@ def raw_bls_json():
             ]
         },
     }
+
+
+# ==========================================================
+# Load Layer Fixtures
+# ==========================================================
+
+@pytest.fixture
+def db_engine():
+    """
+    Isolated SQLite in-memory engine, fresh for every test.
+    StaticPool ensures all connections within one engine see the same
+    in-memory database — required for SQLite :memory: to work correctly
+    with SQLAlchemy's connection pool.
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import StaticPool
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def sample_observations_df():
+    """
+    Small fact DataFrame matching the schema produced by transform.
+    Includes one NaN value to exercise NULL handling.
+    """
+    import pandas as pd
+
+    return pd.DataFrame({
+        "series_id":   ["UNRATE",  "UNRATE",  "FEDFUNDS"],
+        "series_name": ["UNRATE",  "UNRATE",  "MONEY_COST"],
+        "date":        pd.to_datetime(["2024-01-01", "2024-02-01", "2024-01-01"]),
+        "value":       [4.0,       float("nan"), 5.33],
+        "source":      ["FRED",    "FRED",    "FRED"],
+    })
+
+
+@pytest.fixture
+def sample_dim_df():
+    """
+    Small dimension DataFrame matching the schema produced by
+    transform.build_dim_series.
+    """
+    import pandas as pd
+
+    return pd.DataFrame({
+        "series_id":   ["UNRATE",  "FEDFUNDS",   "CUUR0000SA0"],
+        "series_name": ["UNRATE",  "MONEY_COST", "CPI_URBAN"],
+        "source":      ["FRED",    "FRED",        "BLS"],
+    })
