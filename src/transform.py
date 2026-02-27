@@ -92,3 +92,24 @@ def build_dim_series(fred_series: dict, bls_series: dict) -> pd.DataFrame:
         for name, sid in bls_series.items()
     ]
     return pd.DataFrame(rows, columns=["series_id", "series_name", "source"])
+
+def combine_fact_tables(fred_frames: list, bls_frame: pd.DataFrame) -> pd.DataFrame:
+    """
+    Merge all per-series FRED DataFrames with the BLS batch DataFrame.
+
+    Parameters
+    ----------
+    fred_frames : list of DataFrames, one per FRED series (output of parse_fred_observations)
+    bls_frame   : single DataFrame for all BLS series (output of parse_bls_batch)
+
+    Returns
+    -------
+    DataFrame with columns: series_id, series_name, date (datetime64), value (float64), source
+    Sorted oldest-first by date.
+    """
+    all_frames = fred_frames + [bls_frame]
+    return (
+        pd.concat(all_frames, ignore_index=True)
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
