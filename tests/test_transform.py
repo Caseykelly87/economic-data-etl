@@ -157,6 +157,25 @@ def test_build_dim_series_bls_source_label():
     assert (bls_rows["source"] == "BLS").all()
 
 
+def test_parse_bls_missing_value_dash_becomes_nan():
+    """BLS encodes missing values as '-'. Must become NaN, not raise."""
+    data = {
+        "status": "REQUEST_SUCCEEDED",
+        "Results": {
+            "series": [{
+                "seriesID": "CUUR0000SA0",
+                "data": [
+                    {"year": "2024", "period": "M01", "value": "312.0", "footnotes": [{}]},
+                    {"year": "2024", "period": "M02", "value": "-",     "footnotes": [{}]},
+                ],
+            }]
+        },
+    }
+    result = transform.parse_bls_batch(data, {"CPI_URBAN": "CUUR0000SA0"})
+    feb_row = result[result["date"] == pd.Timestamp("2024-02-01")]
+    assert pd.isna(feb_row["value"].iloc[0])    
+
+
 # ==========================================================
 # Fact Table Combiner Tests
 # Function under test: transform.combine_fact_tables(fred_frames, bls_frame)

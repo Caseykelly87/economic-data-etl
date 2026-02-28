@@ -59,7 +59,7 @@ def parse_bls_batch(data: dict, series_map: dict) -> pd.DataFrame:
                 "series_id": series_id,
                 "series_name": id_to_name.get(series_id, series_id),
                 "date": pd.Timestamp(year=int(obs["year"]), month=int(obs["period"][1:]), day=1),
-                "value": float(obs["value"]),
+                "value": pd.to_numeric(obs["value"], errors="coerce"),  # '-' or '.' → NaN
                 "source": "BLS",
             }
             for obs in series["data"]
