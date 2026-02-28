@@ -12,6 +12,12 @@ DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"
 DATA_RAW_DIR.mkdir(parents=True, exist_ok=True)
 DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
+# Database
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "sqlite:///" + (BASE_DIR / "data" / "economic_data.db").as_posix(),
+)
+
 # API Keys
 FRED_API_KEY = os.getenv("FRED_API_KEY")
 BLS_API_KEY = os.getenv("BLS_API_KEY")

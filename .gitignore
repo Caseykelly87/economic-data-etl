@@ -3,4 +3,6 @@ __pycache__/
 *.pyc
 .env
 data/
+data/economic_data.db
 .claude/
+.converage
