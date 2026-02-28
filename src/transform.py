@@ -93,6 +93,7 @@ def build_dim_series(fred_series: dict, bls_series: dict) -> pd.DataFrame:
     ]
     return pd.DataFrame(rows, columns=["series_id", "series_name", "source"])
 
+
 def combine_fact_tables(fred_frames: list, bls_frame: pd.DataFrame) -> pd.DataFrame:
     """
     Merge all per-series FRED DataFrames with the BLS batch DataFrame.

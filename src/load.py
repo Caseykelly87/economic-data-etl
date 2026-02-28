@@ -110,13 +110,16 @@ def upsert_dim_series(df: pd.DataFrame, engine) -> dict:
     Upsert a dimension DataFrame into dim_series.
 
     Primary key: series_id. Existing rows are never overwritten.
-
+    Existing dim rows are never overwritten — series metadata is stable.
+    
     Returns
     -------
     dict with keys: inserted, unchanged
     """
     stats = {"inserted": 0, "unchanged": 0}
 
+    # NOTE: loads the full table into memory for comparison.
+    # Acceptable for small datasets; revisit if row counts grow large.
     with engine.connect() as conn:
         existing = pd.read_sql("SELECT series_id FROM dim_series", conn)
 

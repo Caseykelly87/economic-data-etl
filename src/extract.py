@@ -99,7 +99,7 @@ def fetch_fred_data(series_id):
 
     if old_hash == new_hash:
         logging.info(f"⏩ No changes detected for FRED {series_id}, skipping write")
-        return
+        return data
 
     filepath = get_storage_path("FRED", series_id)
     with open(filepath, "w") as f:
@@ -119,6 +119,7 @@ def fetch_fred_data(series_id):
     })
 
     logging.info(f"✅ Extracted / Updated FRED: {series_id}")
+    return data
 
 
 # ==========================================================
@@ -127,6 +128,7 @@ def fetch_fred_data(series_id):
 
 @fetch_with_retry
 def fetch_bls_data(series_dict, start_year, end_year):
+    """Batch-fetch all BLS series and persist a single raw JSON snapshot."""    
 
     if not BLS_API_KEY:
         raise ValueError("BLS_API_KEY not set.")
@@ -158,7 +160,7 @@ def fetch_bls_data(series_dict, start_year, end_year):
 
     if old_hash == new_hash:
         logging.info("⏩ No changes detected for BLS batch pull")
-        return
+        return data
 
     filepath = get_storage_path("BLS", identifier)
     with open(filepath, "w") as f:
@@ -170,3 +172,4 @@ def fetch_bls_data(series_dict, start_year, end_year):
     })
 
     logging.info("✅ Extracted / Updated BLS Batch")
+    return data
