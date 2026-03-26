@@ -70,19 +70,26 @@ def parse_bls_batch(data: dict, series_map: dict) -> pd.DataFrame:
     return df[["series_id", "series_name", "date", "value", "source"]]
 
 
-def build_dim_series(fred_series: dict, bls_series: dict) -> pd.DataFrame:
+def build_dim_series(
+    fred_series: dict,
+    bls_series: dict,
+    census_series: dict = None,
+    ers_series: dict = None,
+) -> pd.DataFrame:
     """
     Build a dimension table from the configured series mappings.
 
     Parameters
     ----------
-    fred_series : FRED_SERIES dict from config  (name -> series_id)
-    bls_series  : BLS_SERIES dict from config   (name -> series_id)
+    fred_series   : FRED_SERIES dict from config   (name -> series_id)
+    bls_series    : BLS_SERIES dict from config    (name -> series_id)
+    census_series : CENSUS_SERIES dict (optional)  (name -> series_id)
+    ers_series    : ERS_SERIES dict (optional)     (name -> series_id)
 
     Returns
     -------
     DataFrame with columns: series_id, series_name, source
-    One row per configured series (FRED rows first, then BLS).
+    One row per configured series (FRED, BLS, CENSUS, ERS).
     """
     rows = [
         {"series_id": sid, "series_name": name, "source": "FRED"}
@@ -90,27 +97,137 @@ def build_dim_series(fred_series: dict, bls_series: dict) -> pd.DataFrame:
     ] + [
         {"series_id": sid, "series_name": name, "source": "BLS"}
         for name, sid in bls_series.items()
+    ] + [
+        {"series_id": sid, "series_name": name, "source": "CENSUS"}
+        for name, sid in (census_series or {}).items()
+    ] + [
+        {"series_id": sid, "series_name": name, "source": "ERS"}
+        for name, sid in (ers_series or {}).items()
     ]
     return pd.DataFrame(rows, columns=["series_id", "series_name", "source"])
 
 
-def combine_fact_tables(fred_frames: list, bls_frame: pd.DataFrame) -> pd.DataFrame:
+
+def combine_fact_tables(
+    fred_frames: list,
+    bls_frame: pd.DataFrame,
+    extra_frames: list = None,
+) -> pd.DataFrame:
     """
-    Merge all per-series FRED DataFrames with the BLS batch DataFrame.
+    Merge all per-series FRED DataFrames with the BLS batch DataFrame and any
+    additional source DataFrames (e.g. Census MSRS, ERS forecasts).
 
     Parameters
     ----------
-    fred_frames : list of DataFrames, one per FRED series (output of parse_fred_observations)
-    bls_frame   : single DataFrame for all BLS series (output of parse_bls_batch)
+    fred_frames  : list of DataFrames, one per FRED series (output of parse_fred_observations)
+    bls_frame    : single DataFrame for all BLS series (output of parse_bls_batch)
+    extra_frames : optional list of additional source DataFrames (e.g. Census, ERS)
 
     Returns
     -------
     DataFrame with columns: series_id, series_name, date (datetime64), value (float64), source
     Sorted oldest-first by date.
     """
-    all_frames = fred_frames + [bls_frame]
+    all_frames = fred_frames + [bls_frame] + (extra_frames or [])
     return (
         pd.concat(all_frames, ignore_index=True)
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+
+
+def parse_census_msrs(data: list, series_id: str, series_name: str) -> pd.DataFrame:
+    """
+    Parse a raw Census MSRS API response (list of lists) into a normalised DataFrame.
+
+    Census returns rows as a list of lists where the first list is the header.
+    TIME_SLOT_NAME format is 'MMM YYYY' (e.g. 'JAN 2024'), coerced to the first
+    day of that month.  Rows with unparseable dates are dropped.
+
+    Parameters
+    ----------
+    data        : list of lists — full Census API response
+    series_id   : technical series identifier, e.g. 'CENSUS_MSRS_MO_4451'
+    series_name : human-readable config key, e.g. 'GROCERY_SALES_MO'
+
+    Returns
+    -------
+    DataFrame with columns: series_id, series_name, date (datetime64), value (float64), source
+    Sorted oldest-first by date.
+    """
+    df = pd.DataFrame(data[1:], columns=data[0])
+    df = df[["TIME_SLOT_NAME", "DATA_VALUE"]].copy()
+    df["date"] = pd.to_datetime(df["TIME_SLOT_NAME"], format="%b %Y", errors="coerce")
+    df["value"] = pd.to_numeric(df["DATA_VALUE"], errors="coerce")
+    df["series_id"] = series_id
+    df["series_name"] = series_name
+    df["source"] = "CENSUS"
+    df = df.dropna(subset=["date"])
+    return (
+        df[["series_id", "series_name", "date", "value", "source"]]
+        .sort_values("date")
+        .reset_index(drop=True)
+    )
+
+
+def parse_ers_csv(data: dict, category_map: dict, start_year: int) -> pd.DataFrame:
+    """
+    Parse an ERS CPI Forecasts dict (rows stored as list of dicts) into a normalised DataFrame.
+
+    Each row's 'Category' is mapped to a series_id via category_map; rows with
+    unmapped categories are silently dropped.  The 'Year' column produces a date
+    of January 1st of that year.  The annual percent-change value is read from an
+    'Annual' column when present; otherwise the first numeric column after 'Year'
+    and 'Category' is used.
+
+    Parameters
+    ----------
+    data         : dict with a 'rows' key — list of row dicts as produced by
+                   fetch_ers_price_outlook
+    category_map : dict mapping raw CSV category strings to series_id strings
+                   (e.g. ERS_CATEGORY_MAP from config)
+    start_year   : only include rows where Year >= start_year
+
+    Returns
+    -------
+    DataFrame with columns: series_id, series_name, date (datetime64), value (float64), source
+    Sorted oldest-first by date.
+    """
+    rows = data.get("rows", [])
+    if not rows:
+        return pd.DataFrame(columns=["series_id", "series_name", "date", "value", "source"])
+
+    df = pd.DataFrame(rows)
+
+    if "Year" not in df.columns or "Category" not in df.columns:
+        return pd.DataFrame(columns=["series_id", "series_name", "date", "value", "source"])
+
+    df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
+    df = df[df["Year"] >= start_year].copy()
+
+    # Prefer 'Annual' column; fall back to first other numeric column
+    if "Annual" in df.columns:
+        value_col = "Annual"
+    else:
+        candidate_cols = [
+            c for c in df.columns
+            if c not in ("Year", "Category")
+            and pd.to_numeric(df[c], errors="coerce").notna().any()
+        ]
+        value_col = candidate_cols[0] if candidate_cols else None
+
+    if value_col is None:
+        return pd.DataFrame(columns=["series_id", "series_name", "date", "value", "source"])
+
+    df["series_id"] = df["Category"].map(category_map)
+    df = df.dropna(subset=["series_id"])
+    df["series_name"] = df["series_id"]
+    df["date"] = pd.to_datetime(df["Year"].astype(int).astype(str) + "-01-01")
+    df["value"] = pd.to_numeric(df[value_col], errors="coerce")
+    df["source"] = "ERS"
+
+    return (
+        df[["series_id", "series_name", "date", "value", "source"]]
         .sort_values("date")
         .reset_index(drop=True)
     )

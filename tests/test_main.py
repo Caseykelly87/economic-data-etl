@@ -28,29 +28,39 @@ def pipeline_mocks():
     tests. Each test receives the mock dict and may set side_effect or
     assert_called on individual mocks.
     """
-    with patch("src.main.fetch_fred_data",        return_value=_FRED_DATA)  as mock_fred,       \
-         patch("src.main.fetch_bls_data",          return_value=_BLS_DATA)   as mock_bls,        \
-         patch("src.main.parse_fred_observations", return_value=_EMPTY_DF)   as mock_parse_fred, \
-         patch("src.main.parse_bls_batch",         return_value=_EMPTY_DF)   as mock_parse_bls,  \
-         patch("src.main.combine_fact_tables",     return_value=_EMPTY_DF)   as mock_combine,    \
-         patch("src.main.build_dim_series",        return_value=_EMPTY_DF)   as mock_dim,        \
-         patch("src.main.ensure_tables_exist")                               as mock_ensure,     \
-         patch("src.main.upsert_observations",     return_value=_LOAD_STATS) as mock_upsert_obs, \
-         patch("src.main.upsert_dim_series",       return_value={"inserted": 0, "unchanged": 0}) \
-                                                                              as mock_upsert_dim, \
+    with patch("src.main.fetch_fred_data",        return_value=_FRED_DATA)  as mock_fred,          \
+         patch("src.main.fetch_bls_data",          return_value=_BLS_DATA)   as mock_bls,           \
+         patch("src.main.fetch_census_msrs",       return_value=[["H"], ["1", "JAN 2024"]]) \
+                                                                              as mock_census,        \
+         patch("src.main.fetch_ers_price_outlook", return_value={"rows": []}) as mock_ers,          \
+         patch("src.main.parse_fred_observations", return_value=_EMPTY_DF)   as mock_parse_fred,    \
+         patch("src.main.parse_bls_batch",         return_value=_EMPTY_DF)   as mock_parse_bls,     \
+         patch("src.main.parse_census_msrs",       return_value=_EMPTY_DF)   as mock_parse_census,  \
+         patch("src.main.parse_ers_csv",           return_value=_EMPTY_DF)   as mock_parse_ers,     \
+         patch("src.main.combine_fact_tables",     return_value=_EMPTY_DF)   as mock_combine,       \
+         patch("src.main.build_dim_series",        return_value=_EMPTY_DF)   as mock_dim,           \
+         patch("src.main.ensure_tables_exist")                               as mock_ensure,        \
+         patch("src.main.upsert_observations",     return_value=_LOAD_STATS) as mock_upsert_obs,    \
+         patch("src.main.upsert_dim_series",       return_value={"inserted": 0, "unchanged": 0})    \
+                                                                              as mock_upsert_dim,    \
          patch("src.main.create_engine")                                      as mock_engine:
         yield {
-            "fetch_fred":    mock_fred,
-            "fetch_bls":     mock_bls,
-            "parse_fred":    mock_parse_fred,
-            "parse_bls":     mock_parse_bls,
-            "combine":       mock_combine,
-            "build_dim":     mock_dim,
-            "ensure_tables": mock_ensure,
-            "upsert_obs":    mock_upsert_obs,
-            "upsert_dim":    mock_upsert_dim,
-            "create_engine": mock_engine,
+            "fetch_fred":     mock_fred,
+            "fetch_bls":      mock_bls,
+            "fetch_census":   mock_census,
+            "fetch_ers":      mock_ers,
+            "parse_fred":     mock_parse_fred,
+            "parse_bls":      mock_parse_bls,
+            "parse_census":   mock_parse_census,
+            "parse_ers":      mock_parse_ers,
+            "combine":        mock_combine,
+            "build_dim":      mock_dim,
+            "ensure_tables":  mock_ensure,
+            "upsert_obs":     mock_upsert_obs,
+            "upsert_dim":     mock_upsert_dim,
+            "create_engine":  mock_engine,
         }
+
 
 
 # ==========================================================
@@ -93,6 +103,34 @@ def test_run_pipeline_handles_bls_error_gracefully(pipeline_mocks, caplog):
 
     assert "Pipeline failed" in caplog.text
 
+def test_run_pipeline_calls_fetch_census_msrs(pipeline_mocks):
+    """fetch_census_msrs must be called once during extraction."""
+    main.run_pipeline()
+
+    pipeline_mocks["fetch_census"].assert_called_once()
+
+
+def test_run_pipeline_calls_fetch_ers_price_outlook(pipeline_mocks):
+    """fetch_ers_price_outlook must be called once during extraction."""
+    main.run_pipeline()
+
+    pipeline_mocks["fetch_ers"].assert_called_once()
+
+
+def test_run_pipeline_calls_parse_census_msrs(pipeline_mocks):
+    """parse_census_msrs must be called once during transform."""
+    main.run_pipeline()
+
+    pipeline_mocks["parse_census"].assert_called_once()
+
+
+def test_run_pipeline_calls_parse_ers_csv(pipeline_mocks):
+    """parse_ers_csv must be called once during transform."""
+    main.run_pipeline()
+
+    pipeline_mocks["parse_ers"].assert_called_once()
+
+
 
 # ==========================================================
 # Transform Phase Tests
@@ -122,10 +160,16 @@ def test_run_pipeline_calls_combine_fact_tables(pipeline_mocks):
 
 
 def test_run_pipeline_calls_build_dim_series(pipeline_mocks):
-    """build_dim_series must be called with the FRED and BLS series maps from config."""
+    """build_dim_series must be called with all four series maps from config."""
+    from src.config import CENSUS_SERIES, ERS_SERIES
     main.run_pipeline()
 
-    pipeline_mocks["build_dim"].assert_called_once_with(FRED_SERIES, BLS_SERIES)
+    pipeline_mocks["build_dim"].assert_called_once_with(
+        FRED_SERIES, BLS_SERIES,
+        census_series=CENSUS_SERIES,
+        ers_series=ERS_SERIES,
+    )
+
 
 
 def test_run_pipeline_handles_transform_error_gracefully(pipeline_mocks, caplog):

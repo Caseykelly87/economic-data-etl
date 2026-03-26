@@ -21,6 +21,7 @@ DATABASE_URL = os.getenv(
 # API Keys
 FRED_API_KEY = os.getenv("FRED_API_KEY")
 BLS_API_KEY = os.getenv("BLS_API_KEY")
+CENSUS_API_KEY = os.getenv("CENSUS_API_KEY")
 
 # --- Refined Data Selection (Dictionary Format) ---
 # Format: "Human_Readable_Name": "Technical_Series_ID"
@@ -50,6 +51,35 @@ BLS_SERIES = {
     "AVG_WAGES": "CES0500000003", # Avg Hourly Earnings
     "WAGE_INDEX": "CIU2020000000000I" # Employment Cost Index
 }
+
+# --- Grocery / Retail ETL Configuration ---
+
+GROCERY_CONFIG = {
+    "MO_STATE_FIPS": "29",
+    "GROCERY_NAICS": "4451",  # NAICS code for Grocery Stores
+    "START_YEAR": 2024,
+}
+
+# Census Monthly State Retail Sales (name -> series_id)
+CENSUS_SERIES = {
+    "GROCERY_SALES_MO": "CENSUS_MSRS_MO_4451",
+}
+
+# Mapping from ERS CSV category strings to internal series IDs (used by transform)
+ERS_CATEGORY_MAP = {
+    "All food": "ERS_ALL_FOOD",
+    "Food at home": "ERS_FOOD_HOME",
+    "Food away from home": "ERS_FOOD_AWAY",
+    "Cereals and bakery products": "ERS_CEREALS",
+    "Meats, poultry, and fish": "ERS_MEATS",
+    "Dairy products": "ERS_DAIRY",
+    "Fruits and vegetables": "ERS_FRUITS_VEG",
+    "Nonalcoholic beverages and beverage materials": "ERS_BEVERAGES",
+}
+
+# ERS dimension entries (name -> series_id); IDs are self-describing
+ERS_SERIES = {sid: sid for sid in ERS_CATEGORY_MAP.values()}
+
 
 # --- Metadata Storage ---
 DATA_METADATA_DIR = BASE_DIR / "data" / "metadata"

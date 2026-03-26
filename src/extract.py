@@ -1,17 +1,24 @@
+import csv as csv_module
 import functools
-import requests
 import json
 import logging
-import time
 import hashlib
+import time
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
+
+import requests
+
 from src.config import (
     FRED_API_KEY,
     BLS_API_KEY,
+    CENSUS_API_KEY,
+    GROCERY_CONFIG,
     DATA_RAW_DIR,
-    DATA_METADATA_DIR
+    DATA_METADATA_DIR,
 )
+
 
 # ==========================================================
 # Utility Functions
@@ -172,4 +179,94 @@ def fetch_bls_data(series_dict, start_year, end_year):
     })
 
     logging.info("✅ Extracted / Updated BLS Batch")
+    return data
+
+# ==========================================================
+# Census MSRS Extraction (Revision Aware)
+# ==========================================================
+
+@fetch_with_retry
+def fetch_census_msrs():
+    """Fetch Census Monthly State Retail Sales for Missouri grocery stores (NAICS 4451)."""
+
+    if not CENSUS_API_KEY:
+        raise ValueError("CENSUS_API_KEY not set.")
+
+    identifier = "MSRS_MO_4451"
+    metadata = load_metadata("CENSUS", identifier)
+
+    url = "https://api.census.gov/data/timeseries/ecom/msrs"
+    params = {
+        "get": "DATA_VALUE,TIME_SLOT_NAME,ERROR_DATA",
+        "for": f"state:{GROCERY_CONFIG['MO_STATE_FIPS']}",
+        "NAICS": GROCERY_CONFIG["GROCERY_NAICS"],
+        "key": CENSUS_API_KEY,
+    }
+
+    response = requests.get(url, params=params, timeout=10)
+    response.raise_for_status()
+
+    data = response.json()
+
+    if not isinstance(data, list) or len(data) < 2:
+        raise ValueError("Malformed Census MSRS response")
+
+    new_hash = compute_hash({"data": data})
+    old_hash = metadata.get("last_hash")
+
+    if old_hash == new_hash:
+        logging.info("⏩ No changes detected for Census MSRS, skipping write")
+        return data
+
+    filepath = get_storage_path("CENSUS", identifier)
+    with open(filepath, "w") as f:
+        json.dump(data, f)
+
+    save_metadata("CENSUS", identifier, {
+        "last_hash": new_hash,
+        "last_updated": datetime.now().isoformat(),
+    })
+
+    logging.info("✅ Extracted / Updated Census MSRS")
+    return data
+
+
+# ==========================================================
+# USDA ERS Extraction (Revision Aware)
+# ==========================================================
+
+@fetch_with_retry
+def fetch_ers_price_outlook():
+    """Download USDA ERS CPI Forecasts CSV and persist as a raw JSON snapshot."""
+
+    identifier = "cpi_forecasts"
+    metadata = load_metadata("ERS", identifier)
+
+    csv_url = "https://www.ers.usda.gov/webdocs/DataFiles/50673/cpi_forecasts.csv"
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    response = requests.get(csv_url, headers=headers, timeout=15)
+    response.raise_for_status()
+
+    reader = csv_module.DictReader(StringIO(response.text))
+    rows = [dict(row) for row in reader]
+    data = {"rows": rows}
+
+    new_hash = compute_hash(data)
+    old_hash = metadata.get("last_hash")
+
+    if old_hash == new_hash:
+        logging.info("⏩ No changes detected for ERS CPI Forecasts, skipping write")
+        return data
+
+    filepath = get_storage_path("ERS", identifier)
+    with open(filepath, "w") as f:
+        json.dump(data, f)
+
+    save_metadata("ERS", identifier, {
+        "last_hash": new_hash,
+        "last_updated": datetime.now().isoformat(),
+    })
+
+    logging.info("✅ Extracted / Updated ERS CPI Forecasts")
     return data

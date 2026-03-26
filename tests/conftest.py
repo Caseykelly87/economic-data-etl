@@ -168,3 +168,24 @@ def sample_dim_df():
         "series_name": ["UNRATE",  "MONEY_COST", "CPI_URBAN"],
         "source":      ["FRED",    "FRED",        "BLS"],
     })
+
+@pytest.fixture
+def mock_census_msrs_response():
+    """Minimal valid Census MSRS API response (list of lists, first row is header)."""
+    return [
+        ["DATA_VALUE", "TIME_SLOT_NAME", "ERROR_DATA", "state", "NAICS"],
+        ["12345.6", "JAN 2024", "0.5", "29", "4451"],
+        ["12500.0", "FEB 2024", "0.4", "29", "4451"],
+    ]
+
+
+@pytest.fixture
+def mock_ers_response():
+    """Minimal valid ERS CPI Forecasts payload (dict with 'rows' list of dicts)."""
+    return {
+        "rows": [
+            {"Category": "All food",          "Year": "2024", "Annual": "2.1"},
+            {"Category": "Food at home",       "Year": "2024", "Annual": "1.8"},
+            {"Category": "Food away from home","Year": "2024", "Annual": "4.2"},
+        ]
+    }

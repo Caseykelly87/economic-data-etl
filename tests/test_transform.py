@@ -7,6 +7,16 @@ FRED_SERIES_MAP = {"UNRATE": "UNRATE", "PCE_NOMINAL": "PCEC"}
 BLS_SERIES_MAP  = {"CPI_URBAN": "CUUR0000SA0", "AVG_WAGES": "CES0500000003"}
 
 
+CENSUS_SERIES_MAP = {"GROCERY_SALES_MO": "CENSUS_MSRS_MO_4451"}
+ERS_CATEGORY_MAP_TEST = {
+    "All food":          "ERS_ALL_FOOD",
+    "Food at home":      "ERS_FOOD_HOME",
+    "Food away from home": "ERS_FOOD_AWAY",
+}
+ERS_SERIES_MAP_TEST = {sid: sid for sid in ERS_CATEGORY_MAP_TEST.values()}
+
+
+
 # ==========================================================
 # FRED Parsing Tests
 # Function under test: transform.parse_fred_observations(data, series_id, series_name)
@@ -122,6 +132,181 @@ def test_parse_bls_sorted_oldest_first(raw_bls_json):
     cpi = result[result["series_id"] == "CUUR0000SA0"]["date"].tolist()
     assert cpi == sorted(cpi)
 
+# ==========================================================
+# Census MSRS Parsing Tests
+# Function under test: transform.parse_census_msrs(data, series_id, series_name)
+# ==========================================================
+
+_CENSUS_RAW = [
+    ["DATA_VALUE", "TIME_SLOT_NAME", "ERROR_DATA", "state", "NAICS"],
+    ["12345.6", "JAN 2024", "0.5", "29", "4451"],
+    ["12500.0", "FEB 2024", "0.4", "29", "4451"],
+    ["12800.0", "MAR 2024", "0.3", "29", "4451"],
+]
+
+
+def test_parse_census_msrs_returns_dataframe():
+    result = transform.parse_census_msrs(_CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO")
+    assert isinstance(result, pd.DataFrame)
+
+
+def test_parse_census_msrs_expected_columns():
+    result = transform.parse_census_msrs(_CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO")
+    assert list(result.columns) == ["series_id", "series_name", "date", "value", "source"]
+
+
+def test_parse_census_msrs_row_count():
+    result = transform.parse_census_msrs(_CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO")
+    assert len(result) == 3
+
+
+def test_parse_census_msrs_date_column_is_datetime():
+    result = transform.parse_census_msrs(_CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO")
+    assert pd.api.types.is_datetime64_any_dtype(result["date"])
+
+
+def test_parse_census_msrs_date_parsed_from_time_slot_name():
+    """'JAN 2024' must produce 2024-01-01 as a Timestamp."""
+    result = transform.parse_census_msrs(_CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO")
+    assert result.iloc[0]["date"] == pd.Timestamp("2024-01-01")
+
+
+def test_parse_census_msrs_value_column_is_float():
+    result = transform.parse_census_msrs(_CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO")
+    assert result["value"].dtype == "float64"
+
+
+def test_parse_census_msrs_series_id_populated():
+    result = transform.parse_census_msrs(_CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO")
+    assert (result["series_id"] == "CENSUS_MSRS_MO_4451").all()
+
+
+def test_parse_census_msrs_series_name_populated():
+    result = transform.parse_census_msrs(_CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO")
+    assert (result["series_name"] == "GROCERY_SALES_MO").all()
+
+
+def test_parse_census_msrs_source_label():
+    result = transform.parse_census_msrs(_CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO")
+    assert (result["source"] == "CENSUS").all()
+
+
+def test_parse_census_msrs_sorted_oldest_first():
+    result = transform.parse_census_msrs(_CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO")
+    dates = result["date"].tolist()
+    assert dates == sorted(dates)
+
+
+def test_parse_census_msrs_drops_unparseable_dates():
+    """Rows whose TIME_SLOT_NAME cannot be parsed to a date must be silently dropped."""
+    raw = [
+        ["DATA_VALUE", "TIME_SLOT_NAME", "state", "NAICS"],
+        ["12345.6", "JAN 2024",  "29", "4451"],
+        ["99999.9", "Annual",    "29", "4451"],  # non-month row — must be dropped
+    ]
+    result = transform.parse_census_msrs(raw, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO")
+    assert len(result) == 1
+
+
+# ==========================================================
+# ERS CSV Parsing Tests
+# Function under test: transform.parse_ers_csv(data, category_map, start_year)
+# ==========================================================
+
+_ERS_RAW = {
+    "rows": [
+        {"Category": "All food",           "Year": "2024", "Annual": "2.1"},
+        {"Category": "Food at home",        "Year": "2024", "Annual": "1.8"},
+        {"Category": "Food away from home", "Year": "2024", "Annual": "4.2"},
+        {"Category": "All food",            "Year": "2025", "Annual": "2.5"},
+    ]
+}
+
+
+def test_parse_ers_csv_returns_dataframe():
+    result = transform.parse_ers_csv(_ERS_RAW, ERS_CATEGORY_MAP_TEST, 2024)
+    assert isinstance(result, pd.DataFrame)
+
+
+def test_parse_ers_csv_expected_columns():
+    result = transform.parse_ers_csv(_ERS_RAW, ERS_CATEGORY_MAP_TEST, 2024)
+    assert list(result.columns) == ["series_id", "series_name", "date", "value", "source"]
+
+
+def test_parse_ers_csv_maps_categories_to_series_ids():
+    result = transform.parse_ers_csv(_ERS_RAW, ERS_CATEGORY_MAP_TEST, 2024)
+    assert "ERS_ALL_FOOD" in result["series_id"].values
+    assert "ERS_FOOD_HOME" in result["series_id"].values
+
+
+def test_parse_ers_csv_drops_unmapped_categories():
+    """Categories not in category_map must not appear in the output."""
+    raw = {
+        "rows": [
+            {"Category": "All food",           "Year": "2024", "Annual": "2.1"},
+            {"Category": "Exotic imported teas","Year": "2024", "Annual": "9.9"},
+        ]
+    }
+    result = transform.parse_ers_csv(raw, ERS_CATEGORY_MAP_TEST, 2024)
+    assert len(result) == 1
+    assert result.iloc[0]["series_id"] == "ERS_ALL_FOOD"
+
+
+def test_parse_ers_csv_date_is_january_first():
+    """Year 2024 must produce 2024-01-01."""
+    result = transform.parse_ers_csv(_ERS_RAW, ERS_CATEGORY_MAP_TEST, 2024)
+    all_food = result[result["series_id"] == "ERS_ALL_FOOD"].sort_values("date")
+    assert all_food.iloc[0]["date"] == pd.Timestamp("2024-01-01")
+
+
+def test_parse_ers_csv_date_column_is_datetime():
+    result = transform.parse_ers_csv(_ERS_RAW, ERS_CATEGORY_MAP_TEST, 2024)
+    assert pd.api.types.is_datetime64_any_dtype(result["date"])
+
+
+def test_parse_ers_csv_value_column_is_float():
+    result = transform.parse_ers_csv(_ERS_RAW, ERS_CATEGORY_MAP_TEST, 2024)
+    assert result["value"].dtype == "float64"
+
+
+def test_parse_ers_csv_source_label():
+    result = transform.parse_ers_csv(_ERS_RAW, ERS_CATEGORY_MAP_TEST, 2024)
+    assert (result["source"] == "ERS").all()
+
+
+def test_parse_ers_csv_filters_by_start_year():
+    """Rows with Year < start_year must be excluded."""
+    raw = {
+        "rows": [
+            {"Category": "All food", "Year": "2023", "Annual": "5.0"},
+            {"Category": "All food", "Year": "2024", "Annual": "2.1"},
+        ]
+    }
+    result = transform.parse_ers_csv(raw, ERS_CATEGORY_MAP_TEST, 2024)
+    assert len(result) == 1
+    assert result.iloc[0]["date"] == pd.Timestamp("2024-01-01")
+
+
+def test_parse_ers_csv_empty_rows_returns_empty_dataframe():
+    result = transform.parse_ers_csv({"rows": []}, ERS_CATEGORY_MAP_TEST, 2024)
+    assert isinstance(result, pd.DataFrame)
+    assert len(result) == 0
+    assert list(result.columns) == ["series_id", "series_name", "date", "value", "source"]
+
+
+def test_parse_ers_csv_missing_required_columns_returns_empty_dataframe():
+    """If 'Year' or 'Category' columns are absent the function must return an empty DataFrame."""
+    result = transform.parse_ers_csv({"rows": [{"Foo": "bar"}]}, ERS_CATEGORY_MAP_TEST, 2024)
+    assert isinstance(result, pd.DataFrame)
+    assert len(result) == 0
+
+
+def test_parse_ers_csv_sorted_oldest_first():
+    result = transform.parse_ers_csv(_ERS_RAW, ERS_CATEGORY_MAP_TEST, 2024)
+    dates = result["date"].tolist()
+    assert dates == sorted(dates)
+
+
 
 # ==========================================================
 # Dimension Table Tests
@@ -216,3 +401,39 @@ def test_combine_fact_tables_accepts_multiple_fred_frames(raw_fred_json):
     empty_bls = pd.DataFrame(columns=["series_id", "series_name", "date", "value", "source"])
     result = transform.combine_fact_tables([fred_df1, fred_df2], empty_bls)
     assert len(result) == len(fred_df1) + len(fred_df2)
+
+
+def test_build_dim_series_includes_census_rows():
+    result = transform.build_dim_series(
+        FRED_SERIES_MAP, BLS_SERIES_MAP, census_series=CENSUS_SERIES_MAP
+    )
+    census_rows = result[result["source"] == "CENSUS"]
+    assert len(census_rows) == len(CENSUS_SERIES_MAP)
+    assert (census_rows["series_id"] == "CENSUS_MSRS_MO_4451").all()
+
+
+def test_build_dim_series_includes_ers_rows():
+    result = transform.build_dim_series(
+        FRED_SERIES_MAP, BLS_SERIES_MAP, ers_series=ERS_SERIES_MAP_TEST
+    )
+    ers_rows = result[result["source"] == "ERS"]
+    assert len(ers_rows) == len(ERS_SERIES_MAP_TEST)
+
+
+def test_build_dim_series_backward_compatible_without_grocery_args():
+    """Calling with only fred/bls args (no census/ers) must still work."""
+    result = transform.build_dim_series(FRED_SERIES_MAP, BLS_SERIES_MAP)
+    assert len(result) == len(FRED_SERIES_MAP) + len(BLS_SERIES_MAP)
+    assert "CENSUS" not in result["source"].values
+    assert "ERS" not in result["source"].values
+
+
+def test_combine_fact_tables_with_extra_frames(raw_fred_json, raw_bls_json):
+    fred_df = transform.parse_fred_observations(raw_fred_json, "UNRATE", "UNRATE")
+    bls_df  = transform.parse_bls_batch(raw_bls_json, BLS_SERIES_MAP)
+    extra_df = transform.parse_census_msrs(
+        _CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO"
+    )
+    result = transform.combine_fact_tables([fred_df], bls_df, extra_frames=[extra_df])
+    assert len(result) == len(fred_df) + len(bls_df) + len(extra_df)
+    assert "CENSUS" in result["source"].values

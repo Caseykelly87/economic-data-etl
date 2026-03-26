@@ -360,3 +360,139 @@ def test_bls_http_error_raises(temp_dirs, monkeypatch):
 
     with pytest.raises(requests.exceptions.HTTPError):
         extract.fetch_bls_data({"TEST": "TEST123"}, 2024, 2024)
+
+# ==========================================================
+# Census MSRS Extraction Tests
+# ==========================================================
+
+def test_census_msrs_first_run_writes_file(temp_dirs, mock_census_msrs_response, monkeypatch):
+    raw_dir, metadata_dir = temp_dirs
+    monkeypatch.setattr(extract, "CENSUS_API_KEY", "fake_key")
+
+    mock_get = MagicMock()
+    mock_get.return_value.json.return_value = mock_census_msrs_response
+    monkeypatch.setattr("requests.get", mock_get)
+
+    extract.fetch_census_msrs()
+
+    assert len(list(raw_dir.glob("CENSUS_MSRS_MO_4451_*.json"))) == 1
+    assert (metadata_dir / "CENSUS_MSRS_MO_4451_metadata.json").exists()
+
+
+def test_census_msrs_no_change_skips_write(temp_dirs, mock_census_msrs_response, monkeypatch):
+    raw_dir, _ = temp_dirs
+    monkeypatch.setattr(extract, "CENSUS_API_KEY", "fake_key")
+
+    mock_get = MagicMock()
+    mock_get.return_value.json.return_value = mock_census_msrs_response
+    monkeypatch.setattr("requests.get", mock_get)
+
+    extract.fetch_census_msrs()
+    extract.fetch_census_msrs()
+
+    assert len(list(raw_dir.glob("CENSUS_MSRS_MO_4451_*.json"))) == 1
+
+
+def test_census_msrs_change_creates_new_snapshot(temp_dirs, monkeypatch):
+    raw_dir, _ = temp_dirs
+    monkeypatch.setattr(extract, "CENSUS_API_KEY", "fake_key")
+
+    response_v1 = [
+        ["DATA_VALUE", "TIME_SLOT_NAME", "state", "NAICS"],
+        ["12000.0", "JAN 2024", "29", "4451"],
+    ]
+    response_v2 = [
+        ["DATA_VALUE", "TIME_SLOT_NAME", "state", "NAICS"],
+        ["12000.0", "JAN 2024", "29", "4451"],
+        ["12500.0", "FEB 2024", "29", "4451"],
+    ]
+
+    mock_get = MagicMock()
+    monkeypatch.setattr("requests.get", mock_get)
+
+    mock_get.return_value.json.return_value = response_v1
+    extract.fetch_census_msrs()
+
+    mock_get.return_value.json.return_value = response_v2
+    extract.fetch_census_msrs()
+
+    files = list(raw_dir.glob("CENSUS_MSRS_MO_4451_*.json"))
+    assert len(files) == 1  # Same-day overwrite
+
+    with open(files[0]) as f:
+        assert json.load(f) == response_v2
+
+
+def test_census_msrs_no_api_key_raises(monkeypatch):
+    monkeypatch.setattr(extract, "CENSUS_API_KEY", None)
+
+    with pytest.raises(ValueError, match="CENSUS_API_KEY not set"):
+        extract.fetch_census_msrs()
+
+
+def test_census_msrs_http_error_raises(temp_dirs, monkeypatch):
+    monkeypatch.setattr(extract, "CENSUS_API_KEY", "fake_key")
+    monkeypatch.setattr(extract.time, "sleep", lambda _: None)
+
+    mock_get = MagicMock()
+    mock_get.return_value.raise_for_status.side_effect = requests.exceptions.HTTPError("404")
+    monkeypatch.setattr("requests.get", mock_get)
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        extract.fetch_census_msrs()
+
+
+def test_census_msrs_malformed_response_raises(temp_dirs, monkeypatch):
+    """A response that is not a list-of-lists must raise ValueError."""
+    monkeypatch.setattr(extract, "CENSUS_API_KEY", "fake_key")
+
+    mock_get = MagicMock()
+    mock_get.return_value.json.return_value = {"error": "bad request"}
+    monkeypatch.setattr("requests.get", mock_get)
+
+    with pytest.raises(ValueError, match="Malformed Census MSRS response"):
+        extract.fetch_census_msrs()
+
+
+# ==========================================================
+# ERS Price Outlook Extraction Tests
+# ==========================================================
+
+def test_ers_first_run_writes_file(temp_dirs, monkeypatch):
+    raw_dir, metadata_dir = temp_dirs
+
+    csv_text = "Category,Year,Annual\nAll food,2024,2.1\nFood at home,2024,1.8\n"
+    mock_get = MagicMock()
+    mock_get.return_value.status_code = 200
+    mock_get.return_value.text = csv_text
+    monkeypatch.setattr("requests.get", mock_get)
+
+    extract.fetch_ers_price_outlook()
+
+    assert len(list(raw_dir.glob("ERS_cpi_forecasts_*.json"))) == 1
+    assert (metadata_dir / "ERS_cpi_forecasts_metadata.json").exists()
+
+
+def test_ers_no_change_skips_write(temp_dirs, monkeypatch):
+    raw_dir, _ = temp_dirs
+
+    csv_text = "Category,Year,Annual\nAll food,2024,2.1\n"
+    mock_get = MagicMock()
+    mock_get.return_value.text = csv_text
+    monkeypatch.setattr("requests.get", mock_get)
+
+    extract.fetch_ers_price_outlook()
+    extract.fetch_ers_price_outlook()
+
+    assert len(list(raw_dir.glob("ERS_cpi_forecasts_*.json"))) == 1
+
+
+def test_ers_http_error_raises(temp_dirs, monkeypatch):
+    monkeypatch.setattr(extract.time, "sleep", lambda _: None)
+
+    mock_get = MagicMock()
+    mock_get.return_value.raise_for_status.side_effect = requests.exceptions.HTTPError("403")
+    monkeypatch.setattr("requests.get", mock_get)
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        extract.fetch_ers_price_outlook()
