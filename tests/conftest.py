@@ -169,15 +169,6 @@ def sample_dim_df():
         "source":      ["FRED",    "FRED",        "BLS"],
     })
 
-@pytest.fixture
-def mock_census_msrs_response():
-    """Minimal valid Census MSRS API response (list of lists, first row is header)."""
-    return [
-        ["DATA_VALUE", "TIME_SLOT_NAME", "ERROR_DATA", "state", "NAICS"],
-        ["12345.6", "JAN 2024", "0.5", "29", "4451"],
-        ["12500.0", "FEB 2024", "0.4", "29", "4451"],
-    ]
-
 
 @pytest.fixture
 def mock_ers_response():

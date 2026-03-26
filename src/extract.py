@@ -1,8 +1,9 @@
-import csv as csv_module
 import functools
 import json
 import logging
 import hashlib
+import re
+import csv as _csv
 import time
 from datetime import datetime
 from io import StringIO
@@ -13,8 +14,7 @@ import requests
 from src.config import (
     FRED_API_KEY,
     BLS_API_KEY,
-    CENSUS_API_KEY,
-    GROCERY_CONFIG,
+    ERS_SUMMARY_URL,
     DATA_RAW_DIR,
     DATA_METADATA_DIR,
 )
@@ -181,55 +181,50 @@ def fetch_bls_data(series_dict, start_year, end_year):
     logging.info("✅ Extracted / Updated BLS Batch")
     return data
 
+
 # ==========================================================
-# Census MSRS Extraction (Revision Aware)
+# ERS URL Discovery
 # ==========================================================
 
-@fetch_with_retry
-def fetch_census_msrs():
-    """Fetch Census Monthly State Retail Sales for Missouri grocery stores (NAICS 4451)."""
+_ERS_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 
-    if not CENSUS_API_KEY:
-        raise ValueError("CENSUS_API_KEY not set.")
+_ERS_FALLBACK_URL = (
+    "https://www.ers.usda.gov/media/6460/"
+    "changes-in-consumer-price-indexes-2023-through-2026.csv"
+)
 
-    identifier = "MSRS_MO_4451"
-    metadata = load_metadata("CENSUS", identifier)
 
-    url = "https://api.census.gov/data/timeseries/ecom/msrs"
-    params = {
-        "get": "DATA_VALUE,TIME_SLOT_NAME,ERROR_DATA",
-        "for": f"state:{GROCERY_CONFIG['MO_STATE_FIPS']}",
-        "NAICS": GROCERY_CONFIG["GROCERY_NAICS"],
-        "key": CENSUS_API_KEY,
-    }
+def get_dynamic_ers_url() -> str:
+    """
+    Scrape the ERS Food Price Outlook page to find the current CSV link.
+    ERS rotates media IDs on every monthly update.
+    Returns the fallback URL if discovery fails.
+    """
+    try:
+        response = requests.get(ERS_SUMMARY_URL, headers=_ERS_BROWSER_HEADERS, timeout=10)
+        if response.status_code == 200:
+                        match = re.search(
+                r'href="([^"]*(?:consumer.price.index|CPIforecast|cpi_forecast|changes-in-consumer)[^"]*\.csv[^"]*)"',
+                response.text,
+                re.IGNORECASE,
+            )
+        if match:
+                raw = match.group(1)
+                url = raw if raw.startswith("http") else "https://www.ers.usda.gov" + raw
+                logging.info(f"ERS URL discovered: {url}")
+                return url
+    except Exception as e:
+        logging.warning(f"ERS URL discovery failed: {e}")
 
-    response = requests.get(url, params=params, timeout=10)
-    response.raise_for_status()
-
-    data = response.json()
-
-    if not isinstance(data, list) or len(data) < 2:
-        raise ValueError("Malformed Census MSRS response")
-
-    new_hash = compute_hash({"data": data})
-    old_hash = metadata.get("last_hash")
-
-    if old_hash == new_hash:
-        logging.info("⏩ No changes detected for Census MSRS, skipping write")
-        return data
-
-    filepath = get_storage_path("CENSUS", identifier)
-    with open(filepath, "w") as f:
-        json.dump(data, f)
-
-    save_metadata("CENSUS", identifier, {
-        "last_hash": new_hash,
-        "last_updated": datetime.now().isoformat(),
-    })
-
-    logging.info("✅ Extracted / Updated Census MSRS")
-    return data
-
+    logging.warning(f"Using ERS fallback URL — update _ERS_FALLBACK_URL if this 404s: {_ERS_FALLBACK_URL}")
+    return _ERS_FALLBACK_URL
 
 # ==========================================================
 # USDA ERS Extraction (Revision Aware)
@@ -242,13 +237,19 @@ def fetch_ers_price_outlook():
     identifier = "cpi_forecasts"
     metadata = load_metadata("ERS", identifier)
 
-    csv_url = "https://www.ers.usda.gov/webdocs/DataFiles/50673/cpi_forecasts.csv"
-    headers = {"User-Agent": "Mozilla/5.0"}
-
+    csv_url = get_dynamic_ers_url()
+    
+    headers = _ERS_BROWSER_HEADERS
     response = requests.get(csv_url, headers=headers, timeout=15)
+    if response.status_code == 404:
+        raise ValueError(
+            f"ERS CSV URL returned 404. Update _ERS_FALLBACK_URL in extract.py.\n"
+            f"Get the current URL from: https://www.ers.usda.gov/data-products/food-price-outlook/"
+        )
     response.raise_for_status()
 
-    reader = csv_module.DictReader(StringIO(response.text))
+
+    reader = _csv.DictReader(StringIO(response.text))
     rows = [dict(row) for row in reader]
     data = {"rows": rows}
 

@@ -21,7 +21,8 @@ DATABASE_URL = os.getenv(
 # API Keys
 FRED_API_KEY = os.getenv("FRED_API_KEY")
 BLS_API_KEY = os.getenv("BLS_API_KEY")
-CENSUS_API_KEY = os.getenv("CENSUS_API_KEY")
+ERS_SUMMARY_URL = "https://www.ers.usda.gov/data-products/food-price-outlook/summary-findings/"
+
 
 # --- Refined Data Selection (Dictionary Format) ---
 # Format: "Human_Readable_Name": "Technical_Series_ID"
@@ -39,6 +40,9 @@ FRED_SERIES = {
     "UNRATE": "UNRATE",           # Unemployment Rate
     "SAVINGS_RATE": "PSAVERT",    # Personal Saving Rate
     "MONEY_COST": "FEDFUNDS",     # Fed Funds Rate
+
+    # Grocery / Retail (Missouri)
+    "GROCERY_SALES_MO": "MSRSMO445",  # MO Food & Beverage Stores YoY % change (NAICS 445)
 }
 
 BLS_SERIES = {
@@ -52,19 +56,12 @@ BLS_SERIES = {
     "WAGE_INDEX": "CIU2020000000000I" # Employment Cost Index
 }
 
-# --- Grocery / Retail ETL Configuration ---
+# --- Metadata Storage ---
+DATA_METADATA_DIR = BASE_DIR / "data" / "metadata"
+DATA_METADATA_DIR.mkdir(parents=True, exist_ok=True)
 
-GROCERY_CONFIG = {
-    "MO_STATE_FIPS": "29",
-    "GROCERY_NAICS": "4451",  # NAICS code for Grocery Stores
-    "START_YEAR": 2024,
-}
 
-# Census Monthly State Retail Sales (name -> series_id)
-CENSUS_SERIES = {
-    "GROCERY_SALES_MO": "CENSUS_MSRS_MO_4451",
-}
-
+# --- ERS Food Price Outlook Configuration ---
 # Mapping from ERS CSV category strings to internal series IDs (used by transform)
 ERS_CATEGORY_MAP = {
     "All food": "ERS_ALL_FOOD",
@@ -77,10 +74,5 @@ ERS_CATEGORY_MAP = {
     "Nonalcoholic beverages and beverage materials": "ERS_BEVERAGES",
 }
 
-# ERS dimension entries (name -> series_id); IDs are self-describing
+# ERS dimension entries (name -> series_id)
 ERS_SERIES = {sid: sid for sid in ERS_CATEGORY_MAP.values()}
-
-
-# --- Metadata Storage ---
-DATA_METADATA_DIR = BASE_DIR / "data" / "metadata"
-DATA_METADATA_DIR.mkdir(parents=True, exist_ok=True)

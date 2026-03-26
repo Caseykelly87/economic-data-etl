@@ -7,7 +7,6 @@ FRED_SERIES_MAP = {"UNRATE": "UNRATE", "PCE_NOMINAL": "PCEC"}
 BLS_SERIES_MAP  = {"CPI_URBAN": "CUUR0000SA0", "AVG_WAGES": "CES0500000003"}
 
 
-CENSUS_SERIES_MAP = {"GROCERY_SALES_MO": "CENSUS_MSRS_MO_4451"}
 ERS_CATEGORY_MAP_TEST = {
     "All food":          "ERS_ALL_FOOD",
     "Food at home":      "ERS_FOOD_HOME",
@@ -403,14 +402,6 @@ def test_combine_fact_tables_accepts_multiple_fred_frames(raw_fred_json):
     assert len(result) == len(fred_df1) + len(fred_df2)
 
 
-def test_build_dim_series_includes_census_rows():
-    result = transform.build_dim_series(
-        FRED_SERIES_MAP, BLS_SERIES_MAP, census_series=CENSUS_SERIES_MAP
-    )
-    census_rows = result[result["source"] == "CENSUS"]
-    assert len(census_rows) == len(CENSUS_SERIES_MAP)
-    assert (census_rows["series_id"] == "CENSUS_MSRS_MO_4451").all()
-
 
 def test_build_dim_series_includes_ers_rows():
     result = transform.build_dim_series(
@@ -420,20 +411,18 @@ def test_build_dim_series_includes_ers_rows():
     assert len(ers_rows) == len(ERS_SERIES_MAP_TEST)
 
 
-def test_build_dim_series_backward_compatible_without_grocery_args():
-    """Calling with only fred/bls args (no census/ers) must still work."""
+def test_build_dim_series_without_ers_arg():
+    """Calling without ers_series must return only FRED and BLS rows."""
     result = transform.build_dim_series(FRED_SERIES_MAP, BLS_SERIES_MAP)
     assert len(result) == len(FRED_SERIES_MAP) + len(BLS_SERIES_MAP)
-    assert "CENSUS" not in result["source"].values
     assert "ERS" not in result["source"].values
 
 
 def test_combine_fact_tables_with_extra_frames(raw_fred_json, raw_bls_json):
-    fred_df = transform.parse_fred_observations(raw_fred_json, "UNRATE", "UNRATE")
-    bls_df  = transform.parse_bls_batch(raw_bls_json, BLS_SERIES_MAP)
-    extra_df = transform.parse_census_msrs(
-        _CENSUS_RAW, "CENSUS_MSRS_MO_4451", "GROCERY_SALES_MO"
-    )
-    result = transform.combine_fact_tables([fred_df], bls_df, extra_frames=[extra_df])
+    fred_df  = transform.parse_fred_observations(raw_fred_json, "UNRATE", "UNRATE")
+    bls_df   = transform.parse_bls_batch(raw_bls_json, BLS_SERIES_MAP)
+    extra_df = transform.parse_ers_csv(_ERS_RAW, ERS_CATEGORY_MAP_TEST, 2024)
+    result   = transform.combine_fact_tables([fred_df], bls_df, extra_frames=[extra_df])
     assert len(result) == len(fred_df) + len(bls_df) + len(extra_df)
-    assert "CENSUS" in result["source"].values
+    assert "ERS" in result["source"].values
+

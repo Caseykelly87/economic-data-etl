@@ -73,7 +73,6 @@ def parse_bls_batch(data: dict, series_map: dict) -> pd.DataFrame:
 def build_dim_series(
     fred_series: dict,
     bls_series: dict,
-    census_series: dict = None,
     ers_series: dict = None,
 ) -> pd.DataFrame:
     """
@@ -97,9 +96,6 @@ def build_dim_series(
     ] + [
         {"series_id": sid, "series_name": name, "source": "BLS"}
         for name, sid in bls_series.items()
-    ] + [
-        {"series_id": sid, "series_name": name, "source": "CENSUS"}
-        for name, sid in (census_series or {}).items()
     ] + [
         {"series_id": sid, "series_name": name, "source": "ERS"}
         for name, sid in (ers_series or {}).items()
@@ -176,9 +172,8 @@ def parse_ers_csv(data: dict, category_map: dict, start_year: int) -> pd.DataFra
 
     Each row's 'Category' is mapped to a series_id via category_map; rows with
     unmapped categories are silently dropped.  The 'Year' column produces a date
-    of January 1st of that year.  The annual percent-change value is read from an
-    'Annual' column when present; otherwise the first numeric column after 'Year'
-    and 'Category' is used.
+    of January 1st of that year.  The value column is resolved in priority order:
+    Forecast_Midpoint → Annual → Midpoint → first other numeric column.
 
     Parameters
     ----------
@@ -205,10 +200,12 @@ def parse_ers_csv(data: dict, category_map: dict, start_year: int) -> pd.DataFra
     df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
     df = df[df["Year"] >= start_year].copy()
 
-    # Prefer 'Annual' column; fall back to first other numeric column
-    if "Annual" in df.columns:
-        value_col = "Annual"
-    else:
+    value_col = None
+    for preferred in ("Forecast_Midpoint", "Annual", "Midpoint"):
+        if preferred in df.columns:
+            value_col = preferred
+            break
+    if value_col is None:
         candidate_cols = [
             c for c in df.columns
             if c not in ("Year", "Category")
@@ -231,3 +228,4 @@ def parse_ers_csv(data: dict, category_map: dict, start_year: int) -> pd.DataFra
         .sort_values("date")
         .reset_index(drop=True)
     )
+
