@@ -1,0 +1,9 @@
+store_id,store_name,address,city,zip,county_fips,trade_area_profile,sqft,open_date,base_daily_revenue
+1,Knot Shore Downtown,101 Market St,Saint Louis,63101,29510,urban_core,38000,2014-03-01,62000
+2,Knot Shore Clayton,2200 Forsyth Blvd,Clayton,63105,29189,affluent_inner,42000,2015-06-15,71000
+3,Knot Shore South County,5600 Telegraph Rd,Saint Louis,63129,29189,suburban_family,46000,2016-04-20,68000
+4,Knot Shore Chesterfield,14200 Chesterfield Pkwy,Chesterfield,63017,29189,affluent_suburban,48000,2017-09-10,73000
+5,Knot Shore OFallon,2800 Highway K,O Fallon,63366,29183,growth_suburb,45000,2018-05-05,66000
+6,Knot Shore Columbia,1700 S Providence Rd,Columbia,65203,29019,college_town,40000,2019-08-12,58000
+7,Knot Shore Springfield,3100 S Glenstone Ave,Springfield,65804,29077,regional_hub,44000,2020-11-01,60000
+8,Knot Shore Kansas City,4500 Main St,Kansas City,64111,29095,urban_mixed,43000,2021-02-18,64000

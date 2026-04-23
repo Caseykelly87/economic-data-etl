@@ -162,6 +162,57 @@ del data\metadata\FRED_*_metadata.json   # Windows
 
 ---
 
+## Sim Engine Ingestion
+
+A second ingest path, independent of the macro FRED/BLS/ERS pipeline above,
+consumes daily output from a grocery-chain simulation engine and produces
+`store_daily_metrics.parquet` — the canonical input for downstream
+exception detection and portal APIs.
+
+**Narrative context.** In the operational world this project models, eight
+store managers record daily numbers in a shared Google Doc. For the
+simulation phase the sim engine emits the same granularity as a Google
+Sheets export would, and this ETL reads from the sim engine's local
+output tree. A Google Sheets transport is deliberately out of scope for
+this phase; the source adapter (`src/sim_ingest.py`) is structured so
+that substituting one is a drop-in replacement with no change to the
+transform or CLI.
+
+**Input tree shape (consumed):**
+
+```
+output/
+├── daily/{MM}/{DD}/{YYYY}/store_summary.csv
+└── dimensions/dim_stores.csv
+```
+
+**Explicitly NOT consumed in this phase:** `department_sales.csv` (reserved
+for a later phase) and `anomaly_log.csv` (sim engine QA artifact).
+
+**Run the ingest:**
+
+```bash
+python -m src.sim_cli \
+  --input-root path/to/sim/output \
+  --output-dir data/processed
+```
+
+Output: `data/processed/store_daily_metrics.parquet` with five columns in
+this order — `date`, `store_id`, `total_sales` (net of returns),
+`transaction_count`, `avg_basket_size`.
+
+**Full-rebuild semantics.** Running the CLI twice against identical input
+produces a byte-identical parquet file. Rows are sorted deterministically
+by `(date, store_id)` before write. There is no append mode.
+
+**Typed failure modes.** `SchemaValidationError` (missing required column,
+unparseable row, or a `store_id` not present in `dim_stores`) and
+`ReconciliationError` (a walked date directory missing `store_summary.csv`,
+or output row count ≠ input row count) cause a non-zero exit without
+writing partial output.
+
+---
+
 ## Testing
 
 ```bash

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from src import extract
 
@@ -180,3 +182,39 @@ def mock_ers_response():
             {"Category": "Food away from home","Year": "2024", "Annual": "4.2"},
         ]
     }
+
+
+# ==========================================================
+# Sim Engine Ingestion Fixtures
+# On-disk CSV trees under tests/fixtures/sim_engine/ that mirror the
+# sim engine's output/ layout. See the fixture directories themselves
+# for the actual row contents.
+# ==========================================================
+
+def _sim_fixture_root(request, variant: str) -> Path:
+    return (
+        Path(request.config.rootdir)
+        / "tests"
+        / "fixtures"
+        / "sim_engine"
+        / variant
+        / "output"
+    )
+
+
+@pytest.fixture
+def sim_happy_root(request):
+    """Path to the happy-path sim engine output tree (3 dates, 8 stores each)."""
+    return _sim_fixture_root(request, "happy")
+
+
+@pytest.fixture
+def sim_corrupt_root(request):
+    """Path to the corrupt sim engine tree: one store_summary.csv missing net_sales_total."""
+    return _sim_fixture_root(request, "corrupt_missing_column")
+
+
+@pytest.fixture
+def sim_partial_root(request):
+    """Path to the partial sim engine tree: one date directory has no store_summary.csv."""
+    return _sim_fixture_root(request, "partial_missing_date")
