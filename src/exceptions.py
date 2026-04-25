@@ -50,3 +50,42 @@ class ReconciliationError(SimIngestError):
     no date directories found under ``daily/``, and output row counts that
     do not equal the sum of input rows.
     """
+
+
+class DetectionError(Exception):
+    """Base class for every exception-detection failure.
+
+    Mirrors :class:`SimIngestError`'s message + ``**context`` pattern so
+    detection callers get the same operator-friendly error formatting.
+    """
+
+    def __init__(self, message: str, **context: Any) -> None:
+        self.message = message
+        self.context = context
+        super().__init__(self._format(message, context))
+
+    @staticmethod
+    def _format(message: str, context: dict[str, Any]) -> str:
+        if not context:
+            return message
+        rendered = ", ".join(f"{k}={v!r}" for k, v in context.items())
+        return f"{message} ({rendered})"
+
+
+class DetectionConfigError(DetectionError):
+    """Raised when ``config/detection_rules.yaml`` fails validation.
+
+    Covers: a required section is missing, a profile referenced in
+    ``bands_by_profile`` is not in :data:`schemas.KNOWN_PROFILES`, or
+    a rule's required keys are absent.
+    """
+
+
+class DetectionInputError(DetectionError):
+    """Raised when input parquet or dim_stores fails structural checks.
+
+    Covers: ``store_daily_metrics.parquet`` missing, unreadable, or
+    missing a column from :data:`schemas.STORE_DAILY_METRICS_COLUMNS`;
+    a ``store_id`` referenced in the metrics frame absent from
+    ``dim_stores``.
+    """

@@ -1,0 +1,47 @@
+# Exception detection rules for the Knot Shore grocery platform.
+#
+# Bands are deliberately wide because phase 2 does not adjust for
+# day-of-week or seasonal variance. A future baselines phase will
+# provide empirical per-store-date expectations; at that point these
+# static bands can be narrowed or replaced.
+#
+# Per-profile bands key off dim_stores.trade_area_profile. The three
+# profiles below are the canonical set from the live sim engine seed
+# config — every store_id in dim_stores must be one of these profiles.
+
+rules:
+  revenue_band:
+    enabled: true
+    band_pct: 0.25
+    # expected value comes from dim_stores.base_daily_revenue
+
+  labor_pct_band:
+    enabled: true
+    bands_by_profile:
+      suburban-family: { center: 0.105, half_width_pp: 0.05 }
+      urban-dense:     { center: 0.115, half_width_pp: 0.05 }
+      value-market:    { center: 0.120, half_width_pp: 0.05 }
+
+  avg_ticket_band:
+    enabled: true
+    bands_by_profile:
+      suburban-family: { center: 38.00, band_pct: 0.20 }
+      urban-dense:     { center: 28.00, band_pct: 0.20 }
+      value-market:    { center: 32.00, band_pct: 0.20 }
+
+  transactions_band:
+    enabled: true
+    band_pct: 0.25
+    # expected count = dim_stores.base_daily_revenue / avg_ticket_band.center_for_profile
+
+  yoy_comp:
+    enabled: true
+    ratio_lower: 0.85
+    ratio_upper: 1.25
+    # silently skipped when no T-365 row present in metrics frame
+
+severity:
+  # severity_score = distance_from_band / band_half_width
+  info_max: 1.0
+  warning_max: 2.0
+  # anything > warning_max is "critical"

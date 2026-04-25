@@ -76,3 +76,34 @@ class StoreSummaryRecord(NamedTuple):
     transactions_total: int
     labor_cost_pct: float
     source_path: str
+
+
+ANOMALY_FLAG_COLUMNS: tuple[str, ...] = (
+    "date",
+    "store_id",
+    "rule_id",
+    "actual_value",
+    "expected_low",
+    "expected_high",
+    "distance_from_band",
+    "severity_score",
+    "severity_level",
+)
+"""Ordered target schema written to ``anomaly_flags.parquet``."""
+
+SEVERITY_LEVELS: tuple[str, ...] = ("info", "warning", "critical")
+"""Allowed values for the ``severity_level`` column, ordered low-to-high."""
+
+RULE_IDS: tuple[str, ...] = (
+    "revenue_band",
+    "labor_pct_band",
+    "avg_ticket_band",
+    "transactions_band",
+    "yoy_comp",
+)
+"""Allowed values for the ``rule_id`` column, in canonical order."""
+
+KNOWN_PROFILES: frozenset[str] = frozenset(
+    {"suburban-family", "urban-dense", "value-market"}
+)
+"""Trade area profiles defined by the live sim engine seed config."""
