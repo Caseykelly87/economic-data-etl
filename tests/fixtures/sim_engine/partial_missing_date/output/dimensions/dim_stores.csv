@@ -1,9 +1,9 @@
 store_id,store_name,address,city,zip,county_fips,trade_area_profile,sqft,open_date,base_daily_revenue
-1,Knot Shore Downtown,101 Market St,Saint Louis,63101,29510,urban_core,38000,2014-03-01,62000
-2,Knot Shore Clayton,2200 Forsyth Blvd,Clayton,63105,29189,affluent_inner,42000,2015-06-15,71000
-3,Knot Shore South County,5600 Telegraph Rd,Saint Louis,63129,29189,suburban_family,46000,2016-04-20,68000
-4,Knot Shore Chesterfield,14200 Chesterfield Pkwy,Chesterfield,63017,29189,affluent_suburban,48000,2017-09-10,73000
-5,Knot Shore OFallon,2800 Highway K,O Fallon,63366,29183,growth_suburb,45000,2018-05-05,66000
-6,Knot Shore Columbia,1700 S Providence Rd,Columbia,65203,29019,college_town,40000,2019-08-12,58000
-7,Knot Shore Springfield,3100 S Glenstone Ave,Springfield,65804,29077,regional_hub,44000,2020-11-01,60000
-8,Knot Shore Kansas City,4500 Main St,Kansas City,64111,29095,urban_mixed,43000,2021-02-18,64000
+1,Knot Shore — Kirkwood,10250 Manchester Rd,Kirkwood,63122,29189,suburban-family,45000,2009-04-15,95000.00
+2,Knot Shore — Chesterfield,18180 Chesterfield Airport Rd,Chesterfield,63017,29189,suburban-family,52000,2011-08-22,110000.00
+3,Knot Shore — Oakville,5740 Telegraph Rd,Oakville,63129,29189,suburban-family,42000,2013-03-10,85000.00
+4,Knot Shore — Central West End,4340 Lindell Blvd,St. Louis,63108,29510,urban-dense,28000,2007-11-05,68000.00
+5,Knot Shore — Soulard,1701 S 7th St,St. Louis,63104,29510,urban-dense,25000,2010-06-18,58000.00
+6,Knot Shore — Tower Grove,3200 S Grand Blvd,St. Louis,63110,29510,urban-dense,26000,2012-09-28,62000.00
+7,Knot Shore — North County,8200 W Florissant Ave,Jennings,63136,29189,value-market,35000,2015-02-14,55000.00
+8,Knot Shore — South City,4140 Gravois Ave,St. Louis,63116,29510,value-market,32000,2016-07-01,52000.00
