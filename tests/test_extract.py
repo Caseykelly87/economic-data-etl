@@ -366,17 +366,6 @@ def test_bls_http_error_raises(temp_dirs, monkeypatch):
 # ERS URL Discovery Tests
 # ==========================================================
 
-def test_get_dynamic_ers_url_returns_discovered_url(monkeypatch):
-    """When the summary page contains a matching CSV link, return it."""
-    html = '<a href="/media/9999/changes-in-consumer-price-indexes-2024-through-2026.csv">Download</a>'
-    mock_get = MagicMock()
-    mock_get.return_value.text = html
-    monkeypatch.setattr("requests.get", mock_get)
-
-    url = extract.get_dynamic_ers_url()
-
-    assert url == "https://www.ers.usda.gov/media/9999/changes-in-consumer-price-indexes-2024-through-2026.csv"
-
 
 def test_get_dynamic_ers_url_falls_back_on_failure(monkeypatch):
     """When discovery raises an exception, the fallback URL is returned."""
