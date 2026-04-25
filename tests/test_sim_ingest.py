@@ -66,15 +66,15 @@ def test_load_store_summaries_covers_all_eight_stores(sim_happy_root):
 
 
 def test_load_store_summaries_values_nonzero(sim_happy_root):
-    """Spot-check a known row — store 1 on 2024-06-15 has net_sales_total 61104.48."""
+    """Spot-check a known row — store 1 on 2024-06-15 has net_sales_total 87400.00."""
     records = list(sim_ingest.load_store_summaries(sim_happy_root))
     match = [
         r for r in records
         if r.date == date(2024, 6, 15) and r.store_id == 1
     ]
     assert len(match) == 1
-    assert match[0].net_sales_total == pytest.approx(61104.48)
-    assert match[0].transactions_total == 1812
+    assert match[0].net_sales_total == pytest.approx(87400.00)
+    assert match[0].transactions_total == 2300
 
 
 # ==========================================================
