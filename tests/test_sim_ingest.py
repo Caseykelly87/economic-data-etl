@@ -41,7 +41,21 @@ def test_load_store_summaries_field_types(sim_happy_root):
     assert isinstance(first.store_id, int)
     assert isinstance(first.net_sales_total, float)
     assert isinstance(first.transactions_total, int)
+    assert isinstance(first.labor_cost_pct, float)
     assert isinstance(first.source_path, str)
+
+
+def test_load_store_summaries_labor_cost_pct_canonical_values(sim_happy_root):
+    """Each profile's labor_cost_pct must match the canonical seed values:
+    suburban-family 0.105, urban-dense 0.115, value-market 0.120."""
+    records = list(sim_ingest.load_store_summaries(sim_happy_root))
+    by_store = {r.store_id: r.labor_cost_pct for r in records if r.date == date(2024, 6, 15)}
+    for sid in (1, 2, 3):
+        assert by_store[sid] == pytest.approx(0.105)
+    for sid in (4, 5, 6):
+        assert by_store[sid] == pytest.approx(0.115)
+    for sid in (7, 8):
+        assert by_store[sid] == pytest.approx(0.120)
 
 
 def test_load_store_summaries_source_path_points_at_csv(sim_happy_root):

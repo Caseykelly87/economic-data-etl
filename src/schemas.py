@@ -14,7 +14,13 @@ from datetime import date
 from typing import NamedTuple
 
 STORE_SUMMARY_REQUIRED_COLUMNS: frozenset[str] = frozenset(
-    {"date_key", "store_id", "net_sales_total", "transactions_total"}
+    {
+        "date_key",
+        "store_id",
+        "net_sales_total",
+        "transactions_total",
+        "labor_cost_pct",
+    }
 )
 """Columns the adapter must find in every ``store_summary.csv``.
 
@@ -35,6 +41,7 @@ STORE_DAILY_METRICS_COLUMNS: tuple[str, ...] = (
     "total_sales",
     "transaction_count",
     "avg_basket_size",
+    "labor_cost_pct",
 )
 """Ordered target schema written to ``store_daily_metrics.parquet``."""
 
@@ -54,6 +61,10 @@ class StoreSummaryRecord(NamedTuple):
     transactions_total:
         Count of transactions for the store-day; denominator for
         ``avg_basket_size``.
+    labor_cost_pct:
+        Labor cost as a fraction of net sales for the store-day. Carried
+        through to the target schema as ``labor_cost_pct``; ``NaN`` when
+        the source cell is empty.
     source_path:
         Absolute or repo-relative path to the source CSV, carried through
         so errors raised downstream can identify the offending file.
@@ -63,4 +74,5 @@ class StoreSummaryRecord(NamedTuple):
     store_id: int
     net_sales_total: float
     transactions_total: int
+    labor_cost_pct: float
     source_path: str

@@ -132,6 +132,7 @@ def _read_store_summary(csv_path: Path) -> Iterator[StoreSummaryRecord]:
                     store_id=int(row["store_id"]),
                     net_sales_total=float(row["net_sales_total"]),
                     transactions_total=int(row["transactions_total"]),
+                    labor_cost_pct=_parse_optional_float(row["labor_cost_pct"]),
                     source_path=source_path,
                 )
             except (ValueError, KeyError) as exc:
@@ -141,3 +142,13 @@ def _read_store_summary(csv_path: Path) -> Iterator[StoreSummaryRecord]:
                     row=row,
                     cause=str(exc),
                 ) from exc
+
+
+def _parse_optional_float(raw: str) -> float:
+    """Parse a CSV cell as float, treating blank/"nan" as NaN."""
+    if raw is None:
+        return float("nan")
+    stripped = raw.strip()
+    if not stripped or stripped.lower() == "nan":
+        return float("nan")
+    return float(stripped)

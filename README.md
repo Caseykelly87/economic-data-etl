@@ -197,9 +197,10 @@ python -m src.sim_cli \
   --output-dir data/processed
 ```
 
-Output: `data/processed/store_daily_metrics.parquet` with five columns in
+Output: `data/processed/store_daily_metrics.parquet` with six columns in
 this order — `date`, `store_id`, `total_sales` (net of returns),
-`transaction_count`, `avg_basket_size`.
+`transaction_count`, `avg_basket_size`, `labor_cost_pct` (labor cost as
+a fraction of net sales; `NaN` on closed days where `total_sales == 0`).
 
 **Full-rebuild semantics.** Running the CLI twice against identical input
 produces a byte-identical parquet file. Rows are sorted deterministically
