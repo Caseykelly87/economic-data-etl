@@ -214,6 +214,88 @@ writing partial output.
 
 ---
 
+## Exception Detection (Phase 2)
+
+Phase 2 reads the metrics parquet produced by `sim_cli`, evaluates five
+business rules against every store-day, and writes
+`anomaly_flags.parquet` — the canonical input for the upcoming portal
+exceptions API and dashboard. Detection has zero awareness of the sim
+engine's `anomaly_log.csv`; it sees only the metrics and operational
+reference data a real business would have. Repeat invocations against
+identical input produce a byte-identical flags parquet.
+
+**Run detection:**
+
+```bash
+.venv/Scripts/python.exe -m src.detect_cli \
+  --metrics-path data/processed/store_daily_metrics.parquet \
+  --sim-output-root path/to/sim/output \
+  --rules-path config/detection_rules.yaml \
+  --output-dir data/processed
+```
+
+Output: `data/processed/anomaly_flags.parquet` with one row per fired
+rule, sorted deterministically by `(date, store_id, rule_id)`. Schema
+is exactly `(date, store_id, rule_id, actual_value, expected_low,
+expected_high, distance_from_band, severity_score, severity_level)`.
+
+### The five rules
+
+| rule_id           | Checks                                  | Band                              |
+|-------------------|-----------------------------------------|-----------------------------------|
+| `revenue_band`    | `total_sales` vs `base_daily_revenue`   | ± 25%                             |
+| `labor_pct_band`  | `labor_cost_pct` vs profile center      | ± 5pp around profile center       |
+| `avg_ticket_band` | `avg_basket_size` vs profile center     | ± 20% around profile center       |
+| `transactions_band` | `transaction_count` vs `base / avg_ticket_center` | ± 25%                             |
+| `yoy_comp`        | current/T-365 sales ratio               | ratio outside `[0.85, 1.25]`      |
+
+Per-profile centers (from the live sim engine seed):
+`suburban-family` → labor 0.105, ticket $38.00; `urban-dense` →
+labor 0.115, ticket $28.00; `value-market` → labor 0.120, ticket $32.00.
+
+### Severity
+
+`severity_score = distance_from_band / band_half_width`. Values are
+bucketed into `info` (score ≤ 1), `warning` (1 < score ≤ 2), and
+`critical` (> 2). Closed-day rows (`total_sales == 0`) are skipped by
+`labor_pct_band`, `avg_ticket_band`, and `transactions_band`. `yoy_comp`
+is silently skipped when no T-365 row is present in the metrics frame.
+
+### Grain limit
+
+Detection operates at **store-day grain only**. Row-level integrity
+breaches (sub-percent effect on store totals) are inherently invisible
+at this grain; a department-grain phase remains the recovery path if
+demo quality demands it. There is **no day-of-week or seasonal
+adjustment in phase 2** — bands are deliberately wide to tolerate
+weekend and holiday variance without false-positive flooding. Phase 2.5
+(Seasonal Baselines) will produce empirical per-store-date expected
+values that a future detection refactor could consume in place of the
+static bands.
+
+### Evaluating detection quality
+
+`scripts/evaluate_detection.py` measures recall and false-positive rate
+against the sim engine's `anomaly_log.csv` ground-truth file. The
+script lives outside the ETL package and is the **only piece of code in
+this repository permitted to read that log** — detection itself has no
+knowledge of it. Not collected by pytest; not imported by any `src/`
+module.
+
+```bash
+.venv/Scripts/python.exe scripts/evaluate_detection.py \
+  --flags-path data/processed/anomaly_flags.parquet \
+  --anomaly-log-path path/to/sim/output/anomaly_log.csv \
+  --metrics-path data/processed/store_daily_metrics.parquet
+```
+
+Reports global recall, per-anomaly-type recall, and FPR. Phase 2
+contract: `global_recall ≥ 0.35` AND `fpr ≤ 0.10`. The script prints
+a `PASS` / `FAIL` verdict and exits non-zero on `FAIL` so it can be
+wired into CI independently if desired.
+
+---
+
 ## Testing
 
 ```bash
