@@ -14,7 +14,13 @@ from datetime import date
 from typing import NamedTuple
 
 STORE_SUMMARY_REQUIRED_COLUMNS: frozenset[str] = frozenset(
-    {"date_key", "store_id", "net_sales_total", "transactions_total"}
+    {
+        "date_key",
+        "store_id",
+        "net_sales_total",
+        "transactions_total",
+        "labor_cost_pct",
+    }
 )
 """Columns the adapter must find in every ``store_summary.csv``.
 
@@ -35,6 +41,7 @@ STORE_DAILY_METRICS_COLUMNS: tuple[str, ...] = (
     "total_sales",
     "transaction_count",
     "avg_basket_size",
+    "labor_cost_pct",
 )
 """Ordered target schema written to ``store_daily_metrics.parquet``."""
 
@@ -54,6 +61,10 @@ class StoreSummaryRecord(NamedTuple):
     transactions_total:
         Count of transactions for the store-day; denominator for
         ``avg_basket_size``.
+    labor_cost_pct:
+        Labor cost as a fraction of net sales for the store-day. Carried
+        through to the target schema as ``labor_cost_pct``; ``NaN`` when
+        the source cell is empty.
     source_path:
         Absolute or repo-relative path to the source CSV, carried through
         so errors raised downstream can identify the offending file.
@@ -63,4 +74,36 @@ class StoreSummaryRecord(NamedTuple):
     store_id: int
     net_sales_total: float
     transactions_total: int
+    labor_cost_pct: float
     source_path: str
+
+
+ANOMALY_FLAG_COLUMNS: tuple[str, ...] = (
+    "date",
+    "store_id",
+    "rule_id",
+    "actual_value",
+    "expected_low",
+    "expected_high",
+    "distance_from_band",
+    "severity_score",
+    "severity_level",
+)
+"""Ordered target schema written to ``anomaly_flags.parquet``."""
+
+SEVERITY_LEVELS: tuple[str, ...] = ("info", "warning", "critical")
+"""Allowed values for the ``severity_level`` column, ordered low-to-high."""
+
+RULE_IDS: tuple[str, ...] = (
+    "revenue_band",
+    "labor_pct_band",
+    "avg_ticket_band",
+    "transactions_band",
+    "yoy_comp",
+)
+"""Allowed values for the ``rule_id`` column, in canonical order."""
+
+KNOWN_PROFILES: frozenset[str] = frozenset(
+    {"suburban-family", "urban-dense", "value-market"}
+)
+"""Trade area profiles defined by the live sim engine seed config."""

@@ -58,6 +58,9 @@ def build_store_daily_metrics(
             "transaction_count": np.array(
                 [r.transactions_total for r in records], dtype=np.int64
             ),
+            "labor_cost_pct": np.array(
+                [r.labor_cost_pct for r in records], dtype=np.float64
+            ),
         }
     )
 
@@ -67,6 +70,10 @@ def build_store_daily_metrics(
             df["total_sales"] / df["transaction_count"],
             np.nan,
         )
+
+    # Closed-day rows (zero net sales) carry no meaningful labor pct;
+    # blank them so downstream rules skip rather than band-check 0.
+    df.loc[df["total_sales"] == 0, "labor_cost_pct"] = np.nan
 
     df = df[list(STORE_DAILY_METRICS_COLUMNS)]
     df = df.sort_values(["date", "store_id"]).reset_index(drop=True)

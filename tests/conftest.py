@@ -218,3 +218,91 @@ def sim_corrupt_root(request):
 def sim_partial_root(request):
     """Path to the partial sim engine tree: one date directory has no store_summary.csv."""
     return _sim_fixture_root(request, "partial_missing_date")
+
+
+@pytest.fixture
+def sim_anomalous_root(request):
+    """Path to the anomalous sim engine tree: deliberate injections on 2024-06-16.
+
+    See ``tests/fixtures/sim_engine/anomalous/README.md`` for the exact
+    rows and which rules each is expected to fire.
+    """
+    return _sim_fixture_root(request, "anomalous")
+
+
+# ==========================================================
+# Exception Detection Fixtures
+# In-memory and on-disk inputs for the phase 2 rules engine.
+# ==========================================================
+
+@pytest.fixture
+def detection_rules_config(request):
+    """Loaded dict from config/detection_rules.yaml — the full rules tree."""
+    import yaml
+
+    path = Path(request.config.rootdir) / "config" / "detection_rules.yaml"
+    with path.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+@pytest.fixture
+def sample_dim_stores_df():
+    """Eight-store dim_stores DataFrame matching the canonical seed config.
+
+    Carries store_id, base_daily_revenue, and trade_area_profile —
+    every field the detection rules dereference. Other columns from
+    the on-disk dim_stores.csv are omitted as irrelevant to the rules.
+    """
+    import pandas as pd
+
+    return pd.DataFrame({
+        "store_id":           [1, 2, 3, 4, 5, 6, 7, 8],
+        "base_daily_revenue": [95000.0, 110000.0, 85000.0,
+                               68000.0, 58000.0, 62000.0,
+                               55000.0, 52000.0],
+        "trade_area_profile": ["suburban-family"] * 3
+                              + ["urban-dense"] * 3
+                              + ["value-market"] * 2,
+    })
+
+
+@pytest.fixture
+def sample_metrics_df():
+    """In-memory store_daily_metrics DataFrame matching the six-column schema.
+
+    One row per (date, store_id) for two consecutive days so YoY logic
+    can be exercised independently by tests that supply a T-365 row.
+    All values are profile-typical so no rule fires by default; tests
+    mutate specific cells before invoking the rules engine.
+    """
+    from datetime import date as _date
+
+    import numpy as np
+    import pandas as pd
+
+    rows = []
+    profiles_avg = {1: 38.0, 2: 38.0, 3: 38.0,
+                    4: 28.0, 5: 28.0, 6: 28.0,
+                    7: 32.0, 8: 32.0}
+    profile_pct = {1: 0.105, 2: 0.105, 3: 0.105,
+                   4: 0.115, 5: 0.115, 6: 0.115,
+                   7: 0.120, 8: 0.120}
+    base = {1: 95000.0, 2: 110000.0, 3: 85000.0,
+            4: 68000.0, 5: 58000.0, 6: 62000.0,
+            7: 55000.0, 8: 52000.0}
+    for d in (_date(2024, 6, 15), _date(2024, 6, 16)):
+        for sid in range(1, 9):
+            sales = base[sid] * 0.92
+            txns = int(round(sales / profiles_avg[sid]))
+            rows.append({
+                "date": d,
+                "store_id": sid,
+                "total_sales": sales,
+                "transaction_count": txns,
+                "avg_basket_size": sales / txns,
+                "labor_cost_pct": profile_pct[sid],
+            })
+    df = pd.DataFrame(rows)
+    df["store_id"] = df["store_id"].astype(np.int64)
+    df["transaction_count"] = df["transaction_count"].astype(np.int64)
+    return df

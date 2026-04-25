@@ -20,12 +20,19 @@ def _dim_stores(store_ids=range(1, 9)) -> pd.DataFrame:
     return pd.DataFrame({"store_id": list(store_ids)})
 
 
-def _record(d: date, store_id: int, sales: float, txns: int) -> StoreSummaryRecord:
+def _record(
+    d: date,
+    store_id: int,
+    sales: float,
+    txns: int,
+    labor_pct: float = 0.10,
+) -> StoreSummaryRecord:
     return StoreSummaryRecord(
         date=d,
         store_id=store_id,
         net_sales_total=sales,
         transactions_total=txns,
+        labor_cost_pct=labor_pct,
         source_path="in-memory",
     )
 
@@ -81,6 +88,31 @@ def test_build_avg_basket_size_is_float():
         _dim_stores(),
     )
     assert pd.api.types.is_float_dtype(result["avg_basket_size"])
+
+
+def test_build_labor_cost_pct_is_float():
+    result = sim_transform.build_store_daily_metrics(
+        [_record(date(2024, 1, 1), 1, 1000.0, 100, labor_pct=0.105)],
+        _dim_stores(),
+    )
+    assert pd.api.types.is_float_dtype(result["labor_cost_pct"])
+
+
+def test_build_labor_cost_pct_passes_through_record_value():
+    result = sim_transform.build_store_daily_metrics(
+        [_record(date(2024, 1, 1), 1, 1000.0, 100, labor_pct=0.115)],
+        _dim_stores(),
+    )
+    assert result["labor_cost_pct"].iloc[0] == pytest.approx(0.115)
+
+
+def test_labor_cost_pct_nan_when_total_sales_zero():
+    """Closed-day rows yield NaN for labor_cost_pct, matching avg_basket_size."""
+    result = sim_transform.build_store_daily_metrics(
+        [_record(date(2024, 1, 1), 1, 0.0, 0, labor_pct=0.10)],
+        _dim_stores(),
+    )
+    assert pd.isna(result["labor_cost_pct"].iloc[0])
 
 
 def test_build_date_column_contains_datetime_date():
