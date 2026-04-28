@@ -2,7 +2,17 @@
 __pycache__/
 *.pyc
 .env
-data/
-data/economic_data.db
 .claude/
 .coverage
+
+# Local data artifacts are ignored, with one exception: the canonical
+# pipeline fixtures under data/processed/canonical/ ARE committed —
+# they are the authoritative downstream input for the api repository's
+# demo mode. Re-inclusion requires walking the path one segment at a
+# time because git cannot un-ignore a file inside a fully-ignored
+# parent directory.
+data/*
+!data/processed/
+data/processed/*
+!data/processed/canonical/
+!data/processed/canonical/*.parquet
