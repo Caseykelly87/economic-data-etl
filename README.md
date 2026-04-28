@@ -296,6 +296,81 @@ wired into CI independently if desired.
 
 ---
 
+## Canonical Pipeline Fixtures
+
+A pair of canonical parquet artifacts produced by running the sim
+engine + ETL pipeline end-to-end is committed to this repository at:
+
+```
+data/processed/canonical/
+├── store_daily_metrics.parquet   # 1,472 rows × 6 columns
+└── anomaly_flags.parquet         # 453 rows × 9 columns
+```
+
+**`store_daily_metrics.parquet`** spans 2025-07-01 through 2025-12-31
+across all 8 stores (184 days × 8 stores = 1,472 rows). Columns:
+`date`, `store_id`, `total_sales`, `transaction_count`,
+`avg_basket_size`, `labor_cost_pct`.
+
+**`anomaly_flags.parquet`** is the `detect_cli` output produced by
+running the five static detection rules against the metrics parquet.
+Severity counts in the current canonical state: 438 `info`, 15
+`warning`, 0 `critical`.
+
+These two files are the authoritative downstream input for the
+companion API repository's demo mode, which reads copies of these
+parquets directly rather than regenerating its own demo data.
+Committing them to git makes the canonical state visible in PR diffs
+and reproducible across clones without requiring downstream consumers
+to install and run the sim engine.
+
+### Regeneration workflow
+
+The canonical fixtures are regenerated only when the underlying sim
+engine output deliberately changes. The workflow:
+
+1. **Run the sim engine's `backfill` command** in its repository,
+   producing a fresh `output/` directory with the desired window:
+
+   ```bash
+   python -m knot_shore backfill --output ./output
+   ```
+
+2. **Run `scripts/build_canonical_fixtures.py`** from this repo's
+   root, pointing at the sim engine output:
+
+   ```bash
+   .venv/Scripts/python.exe scripts/build_canonical_fixtures.py \
+       --sim-output-root /path/to/sim/engine/output \
+       --output-dir data/processed/canonical/
+   ```
+
+   The script orchestrates `sim_cli` followed by `detect_cli` via
+   subprocess and writes both parquets to `--output-dir`.
+
+3. **Verify** the resulting parquets visually (date range, row
+   counts, columns) and confirm byte-determinism by re-running
+   the script to a temp directory and comparing sha256 hashes:
+
+   ```bash
+   sha256sum data/processed/canonical/*.parquet
+   ```
+
+4. **Commit** the regenerated parquets with a message documenting
+   why the canonical state changed (sim engine window shift,
+   detection rule update, schema change, etc.).
+
+### Gitignore posture
+
+Ad-hoc parquet output produced by running `sim_cli` or `detect_cli`
+directly (e.g. into `data/processed/store_daily_metrics.parquet`)
+remains gitignored — only the `canonical/` subdirectory is tracked.
+The `.gitignore` walks the `data/` tree one segment at a time so the
+canonical re-inclusion takes effect (git cannot un-ignore a file
+inside a fully-ignored parent directory).
+
+---
+
 ## Testing
 
 ```bash
