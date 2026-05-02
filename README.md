@@ -371,6 +371,44 @@ inside a fully-ignored parent directory).
 
 ---
 
+## Logging
+
+Pipeline runs emit structured logs via [structlog](https://www.structlog.org/).
+Output is human-readable colored text when stdout is a tty, single-line JSON
+otherwise. Log level and format can both be overridden via environment
+variables:
+
+| Variable | Values | Default |
+|---|---|---|
+| `LOG_LEVEL` | `debug`, `info`, `warning`, `error`, `critical` | `info` |
+| `LOG_FORMAT` | `console`, `json` | auto (console if tty, else json) |
+
+Example console output (default in a terminal):
+
+```
+2026-05-02 14:55:44 [info     ] parquet_written                row_count=1472 output_path=data/processed/store_daily_metrics.parquet
+```
+
+Example JSON output (default when piped or redirected, or when `LOG_FORMAT=json`):
+
+```json
+{"row_count": 1472, "output_path": "data/processed/store_daily_metrics.parquet", "event": "parquet_written", "level": "info", "timestamp": "2026-05-02T19:55:44.123456Z"}
+```
+
+To debug a failing pipeline run:
+
+```bash
+LOG_LEVEL=debug python -m src.sim_cli --input-root /path/to/sim/output --output-dir data/processed
+```
+
+To capture structured logs for offline analysis:
+
+```bash
+LOG_FORMAT=json python -m src.sim_cli --input-root /path/to/sim/output --output-dir data/processed > run.log
+```
+
+---
+
 ## Testing
 
 ```bash
