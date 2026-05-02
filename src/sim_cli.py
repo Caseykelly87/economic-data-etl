@@ -63,12 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run(input_root: Path, output_dir: Path) -> Path:
     """Execute the full ingest pipeline and return the path to the parquet file."""
-    log.info("Loading dim_stores from %s", input_root)
+    log.info("loading_dim_stores", input_root=str(input_root))
     dim_stores = load_dim_stores(input_root)
 
-    log.info("Walking store_summary tree under %s", input_root)
+    log.info("walking_store_summary_tree", input_root=str(input_root))
     records = list(load_store_summaries(input_root))
-    log.info("Collected %d store-day records", len(records))
+    log.info("ingestion_records_collected", record_count=len(records))
 
     df = build_store_daily_metrics(records, dim_stores)
 
@@ -82,7 +82,7 @@ def run(input_root: Path, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / OUTPUT_FILENAME
     df.to_parquet(output_path, engine="pyarrow", index=False)
-    log.info("Wrote %d rows to %s", len(df), output_path)
+    log.info("parquet_written", row_count=len(df), output_path=str(output_path))
     return output_path
 
 
@@ -95,7 +95,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         run(args.input_root, args.output_dir)
     except SimIngestError as exc:
-        log.error("sim ingestion failed: %s", exc)
+        log.error(
+            "sim_ingestion_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
         return 1
     return 0
 

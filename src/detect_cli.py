@@ -88,10 +88,10 @@ def run(
     rules_path: Path,
     output_dir: Path,
 ) -> Path:
-    log.info("Loading rules config from %s", rules_path)
+    log.info("loading_rules_config", rules_path=str(rules_path))
     rules_config = load_rules_config(rules_path)
 
-    log.info("Loading dim_stores from %s", sim_output_root)
+    log.info("loading_dim_stores", sim_output_root=str(sim_output_root))
     try:
         dim_stores = load_dim_stores(sim_output_root)
     except SchemaValidationError as exc:
@@ -99,7 +99,7 @@ def run(
             "dim_stores load failed", path=str(sim_output_root), cause=str(exc),
         ) from exc
 
-    log.info("Reading metrics parquet from %s", metrics_path)
+    log.info("reading_metrics_parquet", metrics_path=str(metrics_path))
     if not metrics_path.is_file():
         raise DetectionInputError(
             "metrics parquet not found", path=str(metrics_path),
@@ -119,12 +119,20 @@ def run(
             missing_columns=missing,
         )
 
+    log.info("metrics_loaded", row_count=len(metrics_df))
+
     flags = run_all_rules(metrics_df, dim_stores, rules_config)
+
+    log.info("detection_complete", flag_count=len(flags))
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / OUTPUT_FILENAME
     flags.to_parquet(output_path, engine="pyarrow", index=False)
-    log.info("Wrote %d flag rows to %s", len(flags), output_path)
+    log.info(
+        "anomaly_flags_written",
+        output_path=str(output_path),
+        flag_count=len(flags),
+    )
     return output_path
 
 
@@ -137,7 +145,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         run(args.metrics_path, args.sim_output_root, args.rules_path, args.output_dir)
     except DetectionError as exc:
-        log.error("detection failed: %s", exc)
+        log.error(
+            "detection_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
         return 1
     return 0
 
