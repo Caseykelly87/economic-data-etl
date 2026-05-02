@@ -9,3 +9,4 @@ sqlalchemy
 psycopg2-binary
 pyarrow
 pyyaml
+structlog>=24.0

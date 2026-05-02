@@ -20,11 +20,12 @@ Exit codes
 from __future__ import annotations
 
 import argparse
-import logging
+import os
 import sys
 from pathlib import Path
 
 import pandas as pd
+import structlog
 
 from src.detect_rules import load_rules_config, run_all_rules
 from src.exceptions import (
@@ -32,16 +33,13 @@ from src.exceptions import (
     DetectionInputError,
     SchemaValidationError,
 )
+from src.observability import configure_logging
 from src.schemas import STORE_DAILY_METRICS_COLUMNS
 from src.sim_ingest import load_dim_stores
 
 OUTPUT_FILENAME = "anomaly_flags.parquet"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -133,7 +131,8 @@ def run(
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
+        os.environ["LOG_LEVEL"] = "debug"
+    configure_logging()
 
     try:
         run(args.metrics_path, args.sim_output_root, args.rules_path, args.output_dir)

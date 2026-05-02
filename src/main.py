@@ -12,10 +12,10 @@ from src.transform import (
 )
 from src.load import ensure_tables_exist, upsert_observations, upsert_dim_series
 from src.config import FRED_SERIES, BLS_SERIES, ERS_CATEGORY_MAP, ERS_SERIES, DATABASE_URL
+from src.observability import configure_logging
 
 
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+configure_logging()
 
 
 def run_pipeline():

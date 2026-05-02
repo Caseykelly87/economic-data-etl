@@ -17,21 +17,20 @@ Exit codes
 from __future__ import annotations
 
 import argparse
-import logging
+import os
 import sys
 from pathlib import Path
 
+import structlog
+
 from src.exceptions import ReconciliationError, SimIngestError
+from src.observability import configure_logging
 from src.sim_ingest import load_dim_stores, load_store_summaries
 from src.sim_transform import build_store_daily_metrics
 
 OUTPUT_FILENAME = "store_daily_metrics.parquet"
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -90,7 +89,8 @@ def run(input_root: Path, output_dir: Path) -> Path:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
+        os.environ["LOG_LEVEL"] = "debug"
+    configure_logging()
 
     try:
         run(args.input_root, args.output_dir)
