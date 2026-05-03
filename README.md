@@ -407,6 +407,25 @@ To capture structured logs for offline analysis:
 LOG_FORMAT=json python -m src.sim_cli --input-root /path/to/sim/output --output-dir data/processed > run.log
 ```
 
+### Macro pipeline structured fields
+
+The macro pipeline (`src/main.py`, `src/extract.py`) emits the same prose
+messages you see in console output, plus structured fields in JSON mode:
+
+| Field | Values |
+|---|---|
+| `source` | `fred`, `bls`, `ers`, `pipeline`, `http_client` |
+| `status` | `updated`, `skipped`, `failed`, `discovered`, `discovery_failed`, `using_fallback` |
+| `stage` | `startup`, `extract`, `transform`, `load` (pipeline-level only) |
+| `series_id` | FRED series identifier (FRED extraction events) |
+| `error`, `error_type` | error message and exception class (error-path events only) |
+
+Use these to filter logs in JSON mode without parsing the prose:
+
+```bash
+LOG_FORMAT=json python -m src.main 2>&1 | jq 'select(.source == "fred" and .status == "updated")'
+```
+
 ---
 
 ## Testing
