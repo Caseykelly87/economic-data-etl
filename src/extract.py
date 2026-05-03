@@ -61,7 +61,15 @@ def fetch_with_retry(func):
             try:
                 return func(*args, **kwargs)
             except requests.exceptions.RequestException as e:
-                logging.warning(f"⚠️ Attempt {attempt+1} failed: {e}")
+                logging.warning(
+                    f"⚠️ Attempt {attempt+1} failed: {e}",
+                    extra={
+                        "source": "http_client",
+                        "attempt": attempt + 1,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
                 if attempt < 2:
                     time.sleep(2 ** attempt)
                 else:
@@ -105,7 +113,10 @@ def fetch_fred_data(series_id):
     old_hash = metadata.get("last_hash")
 
     if old_hash == new_hash:
-        logging.info(f"⏩ No changes detected for FRED {series_id}, skipping write")
+        logging.info(
+            f"⏩ No changes detected for FRED {series_id}, skipping write",
+            extra={"source": "fred", "series_id": series_id, "status": "skipped"},
+        )
         return data
 
     filepath = get_storage_path("FRED", series_id)
@@ -125,7 +136,10 @@ def fetch_fred_data(series_id):
         "last_updated": datetime.now().isoformat()
     })
 
-    logging.info(f"✅ Extracted / Updated FRED: {series_id}")
+    logging.info(
+        f"✅ Extracted / Updated FRED: {series_id}",
+        extra={"source": "fred", "series_id": series_id, "status": "updated"},
+    )
     return data
 
 
@@ -166,7 +180,10 @@ def fetch_bls_data(series_dict, start_year, end_year):
     old_hash = metadata.get("last_hash")
 
     if old_hash == new_hash:
-        logging.info("⏩ No changes detected for BLS batch pull")
+        logging.info(
+            "⏩ No changes detected for BLS batch pull",
+            extra={"source": "bls", "status": "skipped"},
+        )
         return data
 
     filepath = get_storage_path("BLS", identifier)
@@ -178,7 +195,10 @@ def fetch_bls_data(series_dict, start_year, end_year):
         "last_updated": datetime.now().isoformat()
     })
 
-    logging.info("✅ Extracted / Updated BLS Batch")
+    logging.info(
+        "✅ Extracted / Updated BLS Batch",
+        extra={"source": "bls", "status": "updated"},
+    )
     return data
 
 
@@ -218,12 +238,26 @@ def get_dynamic_ers_url() -> str:
         if match:
                 raw = match.group(1)
                 url = raw if raw.startswith("http") else "https://www.ers.usda.gov" + raw
-                logging.info(f"ERS URL discovered: {url}")
+                logging.info(
+                    f"ERS URL discovered: {url}",
+                    extra={"source": "ers", "discovered_url": url, "status": "discovered"},
+                )
                 return url
     except Exception as e:
-        logging.warning(f"ERS URL discovery failed: {e}")
+        logging.warning(
+            f"ERS URL discovery failed: {e}",
+            extra={
+                "source": "ers",
+                "status": "discovery_failed",
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
 
-    logging.warning(f"Using ERS fallback URL — update _ERS_FALLBACK_URL if this 404s: {_ERS_FALLBACK_URL}")
+    logging.warning(
+        f"Using ERS fallback URL — update _ERS_FALLBACK_URL if this 404s: {_ERS_FALLBACK_URL}",
+        extra={"source": "ers", "fallback_url": _ERS_FALLBACK_URL, "status": "using_fallback"},
+    )
     return _ERS_FALLBACK_URL
 
 # ==========================================================
@@ -257,7 +291,10 @@ def fetch_ers_price_outlook():
     old_hash = metadata.get("last_hash")
 
     if old_hash == new_hash:
-        logging.info("⏩ No changes detected for ERS CPI Forecasts, skipping write")
+        logging.info(
+            "⏩ No changes detected for ERS CPI Forecasts, skipping write",
+            extra={"source": "ers", "dataset": "cpi_forecasts", "status": "skipped"},
+        )
         return data
 
     filepath = get_storage_path("ERS", identifier)
@@ -269,5 +306,8 @@ def fetch_ers_price_outlook():
         "last_updated": datetime.now().isoformat(),
     })
 
-    logging.info("✅ Extracted / Updated ERS CPI Forecasts")
+    logging.info(
+        "✅ Extracted / Updated ERS CPI Forecasts",
+        extra={"source": "ers", "dataset": "cpi_forecasts", "status": "updated"},
+    )
     return data

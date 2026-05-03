@@ -19,7 +19,10 @@ configure_logging()
 
 
 def run_pipeline():
-    logging.info("Starting Economic Data ETL Pipeline")
+    logging.info(
+        "Starting Economic Data ETL Pipeline",
+        extra={"source": "pipeline", "stage": "startup"},
+    )
 
     # ------------------------------------------------------------------
     # Phase 1: Extract — fetch from APIs and persist raw JSON snapshots
@@ -33,10 +36,22 @@ def run_pipeline():
         ers_data    = fetch_ers_price_outlook()
 
     except Exception as e:
-        logging.error(f"Pipeline failed during extraction: {e}")
+        logging.error(
+            f"Pipeline failed during extraction: {e}",
+            extra={
+                "source": "pipeline",
+                "stage": "extract",
+                "status": "failed",
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
         return
 
-    logging.info("Extraction complete.")
+    logging.info(
+        "Extraction complete.",
+        extra={"source": "pipeline", "stage": "extract", "status": "completed"},
+    )
 
     # ------------------------------------------------------------------
     # Phase 2: Transform — normalize raw dicts into tidy DataFrames
@@ -56,10 +71,22 @@ def run_pipeline():
 
 
     except Exception as e:
-        logging.error(f"Pipeline failed during transform: {e}")
+        logging.error(
+            f"Pipeline failed during transform: {e}",
+            extra={
+                "source": "pipeline",
+                "stage": "transform",
+                "status": "failed",
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
         return
 
-    logging.info("Transform complete.")
+    logging.info(
+        "Transform complete.",
+        extra={"source": "pipeline", "stage": "transform", "status": "completed"},
+    )
 
     # ------------------------------------------------------------------
     # Phase 3: Load — upsert DataFrames into the database
@@ -71,11 +98,27 @@ def run_pipeline():
         dim_stats = upsert_dim_series(dim_df, engine)
 
     except Exception as e:
-        logging.error(f"Pipeline failed during load: {e}")
+        logging.error(
+            f"Pipeline failed during load: {e}",
+            extra={
+                "source": "pipeline",
+                "stage": "load",
+                "status": "failed",
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+        )
         return
 
     logging.info(
-        f"Pipeline complete — observations: {obs_stats}, dim_series: {dim_stats}"
+        f"Pipeline complete — observations: {obs_stats}, dim_series: {dim_stats}",
+        extra={
+            "source": "pipeline",
+            "stage": "load",
+            "status": "completed",
+            "observations_stats": str(obs_stats),
+            "dim_series_stats": str(dim_stats),
+        },
     )
 
 
