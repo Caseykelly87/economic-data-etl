@@ -25,10 +25,18 @@ import structlog
 
 from src.exceptions import ReconciliationError, SimIngestError
 from src.observability import configure_logging
-from src.sim_ingest import load_dim_stores, load_store_summaries
-from src.sim_transform import build_store_daily_metrics
+from src.sim_ingest import (
+    load_department_sales,
+    load_dim_stores,
+    load_store_summaries,
+)
+from src.sim_transform import (
+    build_department_daily_metrics,
+    build_store_daily_metrics,
+)
 
 OUTPUT_FILENAME = "store_daily_metrics.parquet"
+DEPARTMENT_OUTPUT_FILENAME = "department_daily_metrics.parquet"
 
 log = structlog.get_logger(__name__)
 
@@ -52,6 +60,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         required=True,
         help="Directory to write store_daily_metrics.parquet into.",
+    )
+    parser.add_argument(
+        "--no-departments",
+        action="store_true",
+        help=(
+            "Skip ingestion of department_sales.csv files. Only "
+            "store_daily_metrics.parquet is written. Useful for fast "
+            "tests; rare in production."
+        ),
     )
     parser.add_argument(
         "--verbose",
@@ -86,6 +103,46 @@ def run(input_root: Path, output_dir: Path) -> Path:
     return output_path
 
 
+def _run_department_grain(input_root: Path, output_dir: Path) -> Path:
+    """Execute the department-grain ingest and return the parquet path.
+
+    Mirrors :func:`run` for the store-day grain. Loads dim_stores again
+    (cheap: an 8-row CSV) so the helper is self-contained and matches
+    the existing reconciliation pattern: row count of the output frame
+    must equal the count of input records.
+    """
+    log.info("loading_dim_stores", input_root=str(input_root), grain="store_day_department")
+    dim_stores = load_dim_stores(input_root)
+
+    log.info("walking_department_sales_tree", input_root=str(input_root))
+    records = list(load_department_sales(input_root))
+    log.info(
+        "ingestion_records_collected",
+        record_count=len(records),
+        grain="store_day_department",
+    )
+
+    df = build_department_daily_metrics(records, dim_stores)
+
+    if len(df) != len(records):
+        raise ReconciliationError(
+            "department output row count does not equal input row count",
+            input_rows=len(records),
+            output_rows=len(df),
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / DEPARTMENT_OUTPUT_FILENAME
+    df.to_parquet(output_path, engine="pyarrow", index=False)
+    log.info(
+        "parquet_written",
+        row_count=len(df),
+        output_path=str(output_path),
+        grain="store_day_department",
+    )
+    return output_path
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.verbose:
@@ -94,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         run(args.input_root, args.output_dir)
+        if not args.no_departments:
+            _run_department_grain(args.input_root, args.output_dir)
     except SimIngestError as exc:
         log.error(
             "sim_ingestion_failed",
