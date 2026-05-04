@@ -19,8 +19,10 @@ import pandas as pd
 
 from src.exceptions import ReconciliationError, SchemaValidationError
 from src.schemas import (
+    DEPARTMENT_SALES_REQUIRED_COLUMNS,
     DIM_STORES_REQUIRED_COLUMNS,
     STORE_SUMMARY_REQUIRED_COLUMNS,
+    DepartmentSalesRecord,
     StoreSummaryRecord,
 )
 
@@ -77,6 +79,64 @@ def load_store_summaries(root: Path) -> Iterator[StoreSummaryRecord]:
                 path=str(date_dir),
             )
         yield from _read_store_summary(csv_path)
+
+
+def load_department_sales(root: Path) -> Iterator[DepartmentSalesRecord]:
+    """Walk ``{root}/daily/{MM}/{DD}/{YYYY}/`` and yield department records.
+
+    Mirrors :func:`load_store_summaries` but reads ``department_sales.csv``
+    from each date directory instead of ``store_summary.csv``. Yield order
+    is deterministic across runs and platforms (date dirs are sorted, and
+    the CSV's row order is preserved within each file). Every CSV is
+    validated against :data:`DEPARTMENT_SALES_REQUIRED_COLUMNS`; extra
+    columns are silently ignored so additions to the sim engine's output
+    do not break ingestion.
+
+    Parameters
+    ----------
+    root:
+        Path to the sim engine's ``output/`` directory. The function
+        expects ``output/daily/`` beneath it.
+
+    Yields
+    ------
+    DepartmentSalesRecord
+        One record per CSV row across every discovered file.
+
+    Raises
+    ------
+    ReconciliationError
+        When ``output/daily/`` does not exist, when no date directories
+        are found, or when a walked date directory does not contain
+        ``department_sales.csv``.
+    SchemaValidationError
+        When a ``department_sales.csv`` is missing a required column or
+        contains an unparseable row.
+    """
+    daily_root = Path(root) / "daily"
+    if not daily_root.is_dir():
+        raise ReconciliationError(
+            "sim engine output has no daily/ subtree",
+            path=str(daily_root),
+        )
+
+    date_dirs = sorted(
+        p for p in daily_root.glob("??/??/????") if p.is_dir()
+    )
+    if not date_dirs:
+        raise ReconciliationError(
+            "no date directories found under daily/",
+            path=str(daily_root),
+        )
+
+    for date_dir in date_dirs:
+        csv_path = date_dir / "department_sales.csv"
+        if not csv_path.is_file():
+            raise ReconciliationError(
+                "walked date directory is missing department_sales.csv",
+                path=str(date_dir),
+            )
+        yield from _read_department_sales(csv_path)
 
 
 def load_dim_stores(root: Path) -> pd.DataFrame:
@@ -138,6 +198,41 @@ def _read_store_summary(csv_path: Path) -> Iterator[StoreSummaryRecord]:
             except (ValueError, KeyError) as exc:
                 raise SchemaValidationError(
                     "unparseable row in store_summary.csv",
+                    path=source_path,
+                    row=row,
+                    cause=str(exc),
+                ) from exc
+
+
+def _read_department_sales(csv_path: Path) -> Iterator[DepartmentSalesRecord]:
+    """Parse a single department_sales.csv into typed records."""
+    with csv_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        fieldnames = set(reader.fieldnames or [])
+        missing = DEPARTMENT_SALES_REQUIRED_COLUMNS - fieldnames
+        if missing:
+            raise SchemaValidationError(
+                "department_sales.csv is missing required columns",
+                path=str(csv_path),
+                missing_columns=sorted(missing),
+            )
+
+        source_path = str(csv_path)
+        for row in reader:
+            try:
+                yield DepartmentSalesRecord(
+                    date=date.fromisoformat(row["date_key"]),
+                    store_id=int(row["store_id"]),
+                    department_id=int(row["department_id"]),
+                    net_sales=float(row["net_sales"]),
+                    transactions=int(row["transactions"]),
+                    units_sold=int(row["units_sold"]),
+                    gross_margin_pct=float(row["gross_margin_pct"]),
+                    source_path=source_path,
+                )
+            except (ValueError, KeyError) as exc:
+                raise SchemaValidationError(
+                    "unparseable row in department_sales.csv",
                     path=source_path,
                     row=row,
                     cause=str(exc),

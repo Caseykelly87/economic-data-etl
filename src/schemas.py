@@ -78,6 +78,74 @@ class StoreSummaryRecord(NamedTuple):
     source_path: str
 
 
+DEPARTMENT_SALES_REQUIRED_COLUMNS: frozenset[str] = frozenset(
+    {
+        "date_key",
+        "store_id",
+        "department_id",
+        "net_sales",
+        "transactions",
+        "units_sold",
+        "gross_margin_pct",
+    }
+)
+"""Columns the adapter must find in every ``department_sales.csv``.
+
+Extra columns (``gross_sales``, ``cogs``, ``discount_amount``,
+``discount_rate``, ``promo_flag``, ``avg_ticket``, ``gross_margin``)
+are silently ignored so additions to the sim engine's output do not
+break ingestion.
+"""
+
+DEPARTMENT_DAILY_METRICS_COLUMNS: tuple[str, ...] = (
+    "date",
+    "store_id",
+    "department_id",
+    "net_sales",
+    "transactions",
+    "units_sold",
+    "gross_margin_pct",
+)
+"""Ordered target schema written to ``department_daily_metrics.parquet``."""
+
+
+class DepartmentSalesRecord(NamedTuple):
+    """One row of a sim engine ``department_sales.csv`` after parsing.
+
+    Attributes
+    ----------
+    date:
+        The observation date (``date_key`` parsed from ``YYYY-MM-DD``).
+    store_id:
+        Integer store identifier (1 through 8 in the current sim engine).
+    department_id:
+        Integer department identifier (1 through 10 in the current sim
+        engine; see ``dim_departments.csv`` for names).
+    net_sales:
+        Net sales for the store-day-department triple.
+    transactions:
+        Transaction count involving items from this department on the
+        store-day.
+    units_sold:
+        Total units sold across the department on the store-day.
+    gross_margin_pct:
+        Gross margin as a fraction (``0.32`` represents 32%); preserved
+        as emitted by the sim engine.
+    source_path:
+        Absolute or repo-relative path to the source CSV, carried through
+        so errors raised downstream can identify the offending file.
+    """
+
+    date: date
+    store_id: int
+    department_id: int
+    net_sales: float
+    transactions: int
+    units_sold: int
+    gross_margin_pct: float
+    source_path: str
+
+
 ANOMALY_FLAG_COLUMNS: tuple[str, ...] = (
     "date",
     "store_id",
