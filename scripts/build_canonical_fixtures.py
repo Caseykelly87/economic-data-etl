@@ -1,11 +1,11 @@
 """Build canonical parquet fixtures from a sim engine output tree.
 
 This developer-facing script orchestrates the existing sim_cli and
-detect_cli modules to produce store_daily_metrics.parquet and
-anomaly_flags.parquet from a sim engine output directory. Used to
-regenerate the committed canonical fixtures at
-data/processed/canonical/ when the underlying sim engine output
-changes.
+detect_cli modules to produce store_daily_metrics.parquet,
+department_daily_metrics.parquet, and anomaly_flags.parquet from a
+sim engine output directory. Used to regenerate the committed
+canonical fixtures at data/processed/canonical/ when the underlying
+sim engine output changes.
 
 NOT collected by pytest (lives in scripts/, not tests/). Intended
 for manual developer invocation.
@@ -19,7 +19,7 @@ Usage
 Exit codes
 ----------
 0
-    Both parquets written successfully.
+    All three parquets written successfully.
 nonzero
     The wrapped sim_cli or detect_cli failed; their stderr is
     surfaced to this script's stderr.
@@ -92,7 +92,10 @@ def run(sim_output_root: Path, output_dir: Path, rules_path: Path) -> None:
     _validate_input_root(sim_output_root)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    log.info("Step 1/2: invoking sim_cli to produce store_daily_metrics.parquet")
+    log.info(
+        "Step 1/2: invoking sim_cli to produce store_daily_metrics.parquet "
+        "and department_daily_metrics.parquet"
+    )
     sim_result = subprocess.run(
         [
             sys.executable, "-m", "src.sim_cli",
@@ -111,6 +114,14 @@ def run(sim_output_root: Path, output_dir: Path, rules_path: Path) -> None:
     metrics_path = output_dir / "store_daily_metrics.parquet"
     if not metrics_path.is_file():
         log.error("sim_cli reported success but %s does not exist", metrics_path)
+        sys.exit(3)
+
+    department_metrics_path = output_dir / "department_daily_metrics.parquet"
+    if not department_metrics_path.is_file():
+        log.error(
+            "sim_cli reported success but %s does not exist",
+            department_metrics_path,
+        )
         sys.exit(3)
 
     log.info("Step 2/2: invoking detect_cli to produce anomaly_flags.parquet")
@@ -138,6 +149,7 @@ def run(sim_output_root: Path, output_dir: Path, rules_path: Path) -> None:
 
     log.info("Canonical fixtures written:")
     log.info("  %s", metrics_path)
+    log.info("  %s", department_metrics_path)
     log.info("  %s", flags_path)
 
 
