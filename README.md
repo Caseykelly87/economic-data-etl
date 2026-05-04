@@ -166,7 +166,9 @@ del data\metadata\FRED_*_metadata.json   # Windows
 
 A second ingest path, independent of the macro FRED/BLS/ERS pipeline above,
 consumes daily output from a grocery-chain simulation engine and produces
-`store_daily_metrics.parquet` — the canonical input for downstream
+two parquet artifacts at complementary grains: `store_daily_metrics.parquet`
+at the store-day grain and `department_daily_metrics.parquet` at the
+store-day-department grain. Both are the canonical input for downstream
 exception detection and portal APIs.
 
 **Narrative context.** In the operational world this project models, eight
@@ -183,11 +185,12 @@ transform or CLI.
 ```
 output/
 ├── daily/{MM}/{DD}/{YYYY}/store_summary.csv
+├── daily/{MM}/{DD}/{YYYY}/department_sales.csv
 └── dimensions/dim_stores.csv
 ```
 
-**Explicitly NOT consumed in this phase:** `department_sales.csv` (reserved
-for a later phase) and `anomaly_log.csv` (sim engine QA artifact).
+**Explicitly NOT consumed:** `anomaly_log.csv` (sim engine QA artifact;
+detection has zero awareness of it — see Phase 2 below).
 
 **Run the ingest:**
 
@@ -197,20 +200,32 @@ python -m src.sim_cli \
   --output-dir data/processed
 ```
 
-Output: `data/processed/store_daily_metrics.parquet` with six columns in
-this order — `date`, `store_id`, `total_sales` (net of returns),
-`transaction_count`, `avg_basket_size`, `labor_cost_pct` (labor cost as
-a fraction of net sales; `NaN` on closed days where `total_sales == 0`).
+Output:
+- `data/processed/store_daily_metrics.parquet` — six columns in this
+  order: `date`, `store_id`, `total_sales` (net of returns),
+  `transaction_count`, `avg_basket_size`, `labor_cost_pct` (labor cost as
+  a fraction of net sales; `NaN` on closed days where `total_sales == 0`).
+- `data/processed/department_daily_metrics.parquet` — seven columns in
+  this order: `date`, `store_id`, `department_id`, `net_sales`,
+  `transactions`, `units_sold`, `gross_margin_pct` (preserved as a
+  fraction; `0.32` represents 32%).
+
+**Skip the department artifact** for fast iterative work by passing
+`--no-departments`. The store-day parquet is produced unchanged; no
+department parquet is written. Production runs and the canonical
+fixture builder always produce both.
 
 **Full-rebuild semantics.** Running the CLI twice against identical input
-produces a byte-identical parquet file. Rows are sorted deterministically
-by `(date, store_id)` before write. There is no append mode.
+produces byte-identical parquet files. Store-day rows are sorted by
+`(date, store_id)`; department-grain rows are sorted by `(date, store_id,
+department_id)`. There is no append mode.
 
 **Typed failure modes.** `SchemaValidationError` (missing required column,
 unparseable row, or a `store_id` not present in `dim_stores`) and
-`ReconciliationError` (a walked date directory missing `store_summary.csv`,
-or output row count ≠ input row count) cause a non-zero exit without
-writing partial output.
+`ReconciliationError` (a walked date directory missing `store_summary.csv`
+or `department_sales.csv`, or output row count ≠ input row count) cause
+a non-zero exit without writing partial output. The store-day phase
+runs first; if it raises, the department phase does not run.
 
 ---
 
@@ -298,13 +313,14 @@ wired into CI independently if desired.
 
 ## Canonical Pipeline Fixtures
 
-A pair of canonical parquet artifacts produced by running the sim
+A trio of canonical parquet artifacts produced by running the sim
 engine + ETL pipeline end-to-end is committed to this repository at:
 
 ```
 data/processed/canonical/
-├── store_daily_metrics.parquet   # 1,472 rows × 6 columns
-└── anomaly_flags.parquet         # 453 rows × 9 columns
+├── store_daily_metrics.parquet        # 1,472 rows × 6 columns
+├── department_daily_metrics.parquet   # 14,706 rows × 7 columns
+└── anomaly_flags.parquet              # 453 rows × 9 columns
 ```
 
 **`store_daily_metrics.parquet`** spans 2025-07-01 through 2025-12-31
@@ -312,12 +328,25 @@ across all 8 stores (184 days × 8 stores = 1,472 rows). Columns:
 `date`, `store_id`, `total_sales`, `transaction_count`,
 `avg_basket_size`, `labor_cost_pct`.
 
-**`anomaly_flags.parquet`** is the `detect_cli` output produced by
-running the five static detection rules against the metrics parquet.
-Severity counts in the current canonical state: 438 `info`, 15
-`warning`, 0 `critical`.
+**`department_daily_metrics.parquet`** spans the same 184-day window
+across all 8 stores and all 10 departments. The upper bound is
+14,720 rows (8 × 10 × 184); the actual count is 14,706 because some
+store-day-department combinations are missing from the sim engine's
+output (a department closed for inventory or an opening-day register
+gap). Columns: `date`, `store_id`, `department_id`, `net_sales`,
+`transactions`, `units_sold`, `gross_margin_pct` (preserved as a
+fraction; the portal's display layer handles percent formatting).
+Rows are sorted by `(date, store_id, department_id)`.
 
-These two files are the authoritative downstream input for the
+**`anomaly_flags.parquet`** is the `detect_cli` output produced by
+running the five static detection rules against the store-day metrics
+parquet. Detection operates at the store-day grain only; the
+department-grain artifact is consumed by the portal directly for
+breakdowns and is not part of the rules engine input. Severity
+counts in the current canonical state: 438 `info`, 15 `warning`,
+0 `critical`.
+
+These three files are the authoritative downstream input for the
 companion API repository's demo mode, which reads copies of these
 parquets directly rather than regenerating its own demo data.
 Committing them to git makes the canonical state visible in PR diffs
@@ -346,7 +375,7 @@ engine output deliberately changes. The workflow:
    ```
 
    The script orchestrates `sim_cli` followed by `detect_cli` via
-   subprocess and writes both parquets to `--output-dir`.
+   subprocess and writes all three parquets to `--output-dir`.
 
 3. **Verify** the resulting parquets visually (date range, row
    counts, columns) and confirm byte-determinism by re-running

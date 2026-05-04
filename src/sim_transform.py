@@ -13,8 +13,13 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from src.exceptions import SchemaValidationError
-from src.schemas import STORE_DAILY_METRICS_COLUMNS, StoreSummaryRecord
+from src.exceptions import ReconciliationError, SchemaValidationError
+from src.schemas import (
+    DEPARTMENT_DAILY_METRICS_COLUMNS,
+    STORE_DAILY_METRICS_COLUMNS,
+    DepartmentSalesRecord,
+    StoreSummaryRecord,
+)
 
 
 def build_store_daily_metrics(
@@ -77,4 +82,74 @@ def build_store_daily_metrics(
 
     df = df[list(STORE_DAILY_METRICS_COLUMNS)]
     df = df.sort_values(["date", "store_id"]).reset_index(drop=True)
+    return df
+
+
+def build_department_daily_metrics(
+    records: Iterable[DepartmentSalesRecord],
+    dim_stores: pd.DataFrame,
+) -> pd.DataFrame:
+    """Normalize sim engine department records into the target frame.
+
+    Mirrors :func:`build_store_daily_metrics` but at the
+    store-day-department grain. The returned DataFrame's columns and
+    column order match :data:`DEPARTMENT_DAILY_METRICS_COLUMNS`. Rows
+    are sorted by ``(date, store_id, department_id)`` so repeat runs on
+    identical input produce byte-identical parquet output downstream.
+
+    Every ``store_id`` present in ``records`` must exist in
+    ``dim_stores["store_id"]``; orphans raise :class:`SchemaValidationError`
+    listing the offending ids, matching the store-day transform's
+    referential-validation contract.
+
+    Raises
+    ------
+    ReconciliationError
+        When the iterable yields zero records. An empty input signals
+        the upstream walker found no department files, which is a
+        reconciliation failure rather than a valid empty frame.
+    SchemaValidationError
+        When a record references a ``store_id`` not present in
+        ``dim_stores``.
+    """
+    records = list(records)
+    if not records:
+        raise ReconciliationError(
+            "no department records yielded by source adapter",
+        )
+
+    known_store_ids = set(dim_stores["store_id"].astype(int))
+    orphan_ids = sorted({r.store_id for r in records} - known_store_ids)
+    if orphan_ids:
+        raise SchemaValidationError(
+            "department_sales references store_ids not in dim_stores",
+            orphan_store_ids=orphan_ids,
+        )
+
+    df = pd.DataFrame(
+        {
+            "date": [r.date for r in records],
+            "store_id": np.array([r.store_id for r in records], dtype=np.int64),
+            "department_id": np.array(
+                [r.department_id for r in records], dtype=np.int64
+            ),
+            "net_sales": np.array(
+                [r.net_sales for r in records], dtype=np.float64
+            ),
+            "transactions": np.array(
+                [r.transactions for r in records], dtype=np.int64
+            ),
+            "units_sold": np.array(
+                [r.units_sold for r in records], dtype=np.int64
+            ),
+            "gross_margin_pct": np.array(
+                [r.gross_margin_pct for r in records], dtype=np.float64
+            ),
+        }
+    )
+
+    df = df[list(DEPARTMENT_DAILY_METRICS_COLUMNS)]
+    df = df.sort_values(
+        ["date", "store_id", "department_id"], kind="mergesort"
+    ).reset_index(drop=True)
     return df
