@@ -108,6 +108,26 @@ DEPARTMENT_DAILY_METRICS_COLUMNS: tuple[str, ...] = (
 )
 """Ordered target schema written to ``department_daily_metrics.parquet``."""
 
+DIM_STORES_FULL_COLUMNS: tuple[str, ...] = (
+    "store_id",
+    "store_name",
+    "address",
+    "city",
+    "zip",
+    "county_fips",
+    "trade_area_profile",
+    "sqft",
+    "open_date",
+    "base_daily_revenue",
+)
+"""Ordered output schema for ``dim_stores.parquet``.
+
+Distinct from :data:`DIM_STORES_REQUIRED_COLUMNS`, which is the
+validation contract for the source adapter (only ``store_id`` is
+required to be present and coerced). This constant defines the full
+column ordering of the canonical artifact written by ``sim_cli``.
+"""
+
 
 class DepartmentSalesRecord(NamedTuple):
     """One row of a sim engine ``department_sales.csv`` after parsing.

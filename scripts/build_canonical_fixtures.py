@@ -93,8 +93,8 @@ def run(sim_output_root: Path, output_dir: Path, rules_path: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     log.info(
-        "Step 1/2: invoking sim_cli to produce store_daily_metrics.parquet "
-        "and department_daily_metrics.parquet"
+        "Step 1/2: invoking sim_cli to produce store_daily_metrics.parquet, "
+        "department_daily_metrics.parquet, and dim_stores.parquet"
     )
     sim_result = subprocess.run(
         [
@@ -124,6 +124,14 @@ def run(sim_output_root: Path, output_dir: Path, rules_path: Path) -> None:
         )
         sys.exit(3)
 
+    dim_stores_path = output_dir / "dim_stores.parquet"
+    if not dim_stores_path.is_file():
+        log.error(
+            "sim_cli reported success but %s does not exist",
+            dim_stores_path,
+        )
+        sys.exit(3)
+
     log.info("Step 2/2: invoking detect_cli to produce anomaly_flags.parquet")
     detect_result = subprocess.run(
         [
@@ -150,6 +158,7 @@ def run(sim_output_root: Path, output_dir: Path, rules_path: Path) -> None:
     log.info("Canonical fixtures written:")
     log.info("  %s", metrics_path)
     log.info("  %s", department_metrics_path)
+    log.info("  %s", dim_stores_path)
     log.info("  %s", flags_path)
 
 

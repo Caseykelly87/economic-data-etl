@@ -21,10 +21,12 @@ import os
 import sys
 from pathlib import Path
 
+import pandas as pd
 import structlog
 
 from src.exceptions import ReconciliationError, SimIngestError
 from src.observability import configure_logging
+from src.schemas import DIM_STORES_FULL_COLUMNS
 from src.sim_ingest import (
     load_department_sales,
     load_dim_stores,
@@ -37,6 +39,7 @@ from src.sim_transform import (
 
 OUTPUT_FILENAME = "store_daily_metrics.parquet"
 DEPARTMENT_OUTPUT_FILENAME = "department_daily_metrics.parquet"
+DIM_STORES_OUTPUT_FILENAME = "dim_stores.parquet"
 
 log = structlog.get_logger(__name__)
 
@@ -103,6 +106,25 @@ def run(input_root: Path, output_dir: Path) -> Path:
     return output_path
 
 
+def _write_dim_stores_parquet(
+    dim_stores: pd.DataFrame,
+    output_dir: Path,
+) -> Path:
+    """Write the dim_stores DataFrame to the canonical parquet output.
+
+    Reorders columns to match :data:`DIM_STORES_FULL_COLUMNS` and sorts
+    rows by ``store_id`` so repeat invocations against identical input
+    produce byte-identical output regardless of the source CSV's column
+    or row ordering.
+    """
+    df = dim_stores[list(DIM_STORES_FULL_COLUMNS)].copy()
+    df = df.sort_values(by="store_id", kind="mergesort").reset_index(drop=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / DIM_STORES_OUTPUT_FILENAME
+    df.to_parquet(output_path, engine="pyarrow", index=False)
+    return output_path
+
+
 def _run_department_grain(input_root: Path, output_dir: Path) -> Path:
     """Execute the department-grain ingest and return the parquet path.
 
@@ -151,6 +173,21 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         run(args.input_root, args.output_dir)
+
+        log.info(
+            "loading_dim_stores",
+            input_root=str(args.input_root),
+            artifact="dim_stores",
+        )
+        dim_stores = load_dim_stores(args.input_root)
+        dim_stores_path = _write_dim_stores_parquet(dim_stores, args.output_dir)
+        log.info(
+            "parquet_written",
+            row_count=len(dim_stores),
+            output_path=str(dim_stores_path),
+            artifact="dim_stores",
+        )
+
         if not args.no_departments:
             _run_department_grain(args.input_root, args.output_dir)
     except SimIngestError as exc:
