@@ -60,6 +60,26 @@ class TestBuildCanonicalFixtures:
         flags_path = tmp_path / "anomaly_flags.parquet"
         assert flags_path.is_file()
 
+    def test_produces_dim_stores_parquet(self, tmp_path: Path):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--sim-output-root", str(HAPPY_FIXTURE),
+                "--output-dir", str(tmp_path),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+        )
+        assert result.returncode == 0, (
+            f"Script exited {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+        dim_stores_path = tmp_path / "dim_stores.parquet"
+        assert dim_stores_path.is_file()
+        df = pd.read_parquet(dim_stores_path)
+        assert len(df) == 8
+
     def test_metrics_parquet_has_expected_shape(self, tmp_path: Path):
         subprocess.run(
             [

@@ -166,10 +166,11 @@ del data\metadata\FRED_*_metadata.json   # Windows
 
 A second ingest path, independent of the macro FRED/BLS/ERS pipeline above,
 consumes daily output from a grocery-chain simulation engine and produces
-two parquet artifacts at complementary grains: `store_daily_metrics.parquet`
-at the store-day grain and `department_daily_metrics.parquet` at the
-store-day-department grain. Both are the canonical input for downstream
-exception detection and portal APIs.
+three parquet artifacts: `store_daily_metrics.parquet` at the store-day
+grain, `department_daily_metrics.parquet` at the store-day-department
+grain, and `dim_stores.parquet` carrying the 8-store reference dimension
+(name, city, trade-area profile, etc.). All three are the canonical
+input for downstream exception detection and portal APIs.
 
 **Narrative context.** In the operational world this project models, eight
 store managers record daily numbers in a shared Google Doc. For the
@@ -209,6 +210,11 @@ Output:
   this order: `date`, `store_id`, `department_id`, `net_sales`,
   `transactions`, `units_sold`, `gross_margin_pct` (preserved as a
   fraction; `0.32` represents 32%).
+- `data/processed/dim_stores.parquet` — ten columns in this order:
+  `store_id`, `store_name`, `address`, `city`, `zip`, `county_fips`,
+  `trade_area_profile`, `sqft`, `open_date`, `base_daily_revenue`.
+  Sorted by `store_id`. Always written; the artifact is small (8 rows)
+  and the cost is negligible relative to the other parquets.
 
 **Skip the department artifact** for fast iterative work by passing
 `--no-departments`. The store-day parquet is produced unchanged; no
@@ -313,13 +319,14 @@ wired into CI independently if desired.
 
 ## Canonical Pipeline Fixtures
 
-A trio of canonical parquet artifacts produced by running the sim
+A set of canonical parquet artifacts produced by running the sim
 engine + ETL pipeline end-to-end is committed to this repository at:
 
 ```
 data/processed/canonical/
 ├── store_daily_metrics.parquet        # 1,472 rows × 6 columns
 ├── department_daily_metrics.parquet   # 14,706 rows × 7 columns
+├── dim_stores.parquet                 # 8 rows × 10 columns
 └── anomaly_flags.parquet              # 453 rows × 9 columns
 ```
 
@@ -338,6 +345,18 @@ gap). Columns: `date`, `store_id`, `department_id`, `net_sales`,
 fraction; the portal's display layer handles percent formatting).
 Rows are sorted by `(date, store_id, department_id)`.
 
+**`dim_stores.parquet`** is the canonical store reference dataset:
+8 rows, one per store, in `store_id` order. Columns: `store_id`,
+`store_name`, `address`, `city`, `zip`, `county_fips`,
+`trade_area_profile`, `sqft`, `open_date`, `base_daily_revenue`. Only
+`store_id` is type-coerced (to `int64`); other columns pass through
+as pandas reads them from the source CSV — `zip`, `county_fips`, and
+`sqft` are `int64`; `open_date` is a string in `YYYY-MM-DD` form;
+`base_daily_revenue` is `float64`; the remaining columns are strings.
+The portal's store drilldown view consumes this dimension via the
+companion API to render real store identification (name, city,
+trade-area profile) rather than synthesized labels.
+
 **`anomaly_flags.parquet`** is the `detect_cli` output produced by
 running the five static detection rules against the store-day metrics
 parquet. Detection operates at the store-day grain only; the
@@ -346,7 +365,7 @@ breakdowns and is not part of the rules engine input. Severity
 counts in the current canonical state: 438 `info`, 15 `warning`,
 0 `critical`.
 
-These three files are the authoritative downstream input for the
+These four files are the authoritative downstream input for the
 companion API repository's demo mode, which reads copies of these
 parquets directly rather than regenerating its own demo data.
 Committing them to git makes the canonical state visible in PR diffs
