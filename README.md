@@ -324,23 +324,31 @@ engine + ETL pipeline end-to-end is committed to this repository at:
 
 ```
 data/processed/canonical/
-├── store_daily_metrics.parquet        # 1,472 rows × 6 columns
-├── department_daily_metrics.parquet   # 14,706 rows × 7 columns
+├── store_daily_metrics.parquet        # 2,944 rows × 6 columns
+├── department_daily_metrics.parquet   # 29,414 rows × 7 columns
 ├── dim_stores.parquet                 # 8 rows × 10 columns
-└── anomaly_flags.parquet              # 453 rows × 9 columns
+└── anomaly_flags.parquet              # 983 rows × 9 columns
 ```
 
-**`store_daily_metrics.parquet`** spans 2025-07-01 through 2025-12-31
-across all 8 stores (184 days × 8 stores = 1,472 rows). Columns:
+**`store_daily_metrics.parquet`** spans two paired six-month windows:
+2024-07-01 through 2024-12-31 and 2025-07-01 through 2025-12-31, each
+covering all 8 stores (184 days × 8 stores × 2 years = 2,944 rows).
+The 2025 window is the demo dataset surfaced by the dashboard; the
+2024 window enables year-over-year comparison views (consumed by the
+portal's store drilldown via the API's existing `start_date`/`end_date`
+query parameters). Filtering this parquet to the 2025 window yields
+1,472 rows byte-identical to the prior single-year canonical. Columns:
 `date`, `store_id`, `total_sales`, `transaction_count`,
 `avg_basket_size`, `labor_cost_pct`.
 
-**`department_daily_metrics.parquet`** spans the same 184-day window
-across all 8 stores and all 10 departments. The upper bound is
-14,720 rows (8 × 10 × 184); the actual count is 14,706 because some
-store-day-department combinations are missing from the sim engine's
-output (a department closed for inventory or an opening-day register
-gap). Columns: `date`, `store_id`, `department_id`, `net_sales`,
+**`department_daily_metrics.parquet`** spans the same two paired
+windows across all 8 stores and all 10 departments. The upper bound
+is 29,440 rows (8 × 10 × 184 × 2); the actual count is 29,414 because
+some store-day-department combinations are missing from the sim
+engine's output (a department closed for inventory or an opening-day
+register gap). The 2024 window contributes 14,708 rows; the 2025
+window contributes 14,706 rows byte-identical to the prior single-year
+canonical. Columns: `date`, `store_id`, `department_id`, `net_sales`,
 `transactions`, `units_sold`, `gross_margin_pct` (preserved as a
 fraction; the portal's display layer handles percent formatting).
 Rows are sorted by `(date, store_id, department_id)`.
@@ -361,9 +369,11 @@ trade-area profile) rather than synthesized labels.
 running the five static detection rules against the store-day metrics
 parquet. Detection operates at the store-day grain only; the
 department-grain artifact is consumed by the portal directly for
-breakdowns and is not part of the rules engine input. Severity
-counts in the current canonical state: 438 `info`, 15 `warning`,
-0 `critical`.
+breakdowns and is not part of the rules engine input. Detection runs
+across both the 2024 and 2025 windows; the `yoy_comp` rule fires only
+where a prior-year baseline exists (i.e. on 2025 dates that have a
+2024 same-day comparison), contributing 184 flags. Severity counts in
+the current canonical state: 950 `info`, 33 `warning`, 0 `critical`.
 
 These four files are the authoritative downstream input for the
 companion API repository's demo mode, which reads copies of these
@@ -434,13 +444,13 @@ variables:
 Example console output (default in a terminal):
 
 ```
-2026-05-02 14:55:44 [info     ] parquet_written                row_count=1472 output_path=data/processed/store_daily_metrics.parquet
+2026-05-02 14:55:44 [info     ] parquet_written                row_count=2944 output_path=data/processed/store_daily_metrics.parquet
 ```
 
 Example JSON output (default when piped or redirected, or when `LOG_FORMAT=json`):
 
 ```json
-{"row_count": 1472, "output_path": "data/processed/store_daily_metrics.parquet", "event": "parquet_written", "level": "info", "timestamp": "2026-05-02T19:55:44.123456Z"}
+{"row_count": 2944, "output_path": "data/processed/store_daily_metrics.parquet", "event": "parquet_written", "level": "info", "timestamp": "2026-05-02T19:55:44.123456Z"}
 ```
 
 To debug a failing pipeline run:
