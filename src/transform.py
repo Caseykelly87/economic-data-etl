@@ -102,7 +102,6 @@ def build_dim_series(
     return pd.DataFrame(rows, columns=["series_id", "series_name", "source"])
 
 
-
 def combine_fact_tables(
     fred_frames: list,
     bls_frame: pd.DataFrame,
