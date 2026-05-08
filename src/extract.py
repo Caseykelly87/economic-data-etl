@@ -62,7 +62,7 @@ def fetch_with_retry(func):
                 return func(*args, **kwargs)
             except requests.exceptions.RequestException as e:
                 logging.warning(
-                    f"⚠️ Attempt {attempt+1} failed: {e}",
+                    f"Attempt {attempt+1} failed: {e}",
                     extra={
                         "source": "http_client",
                         "attempt": attempt + 1,
@@ -114,7 +114,7 @@ def fetch_fred_data(series_id):
 
     if old_hash == new_hash:
         logging.info(
-            f"⏩ No changes detected for FRED {series_id}, skipping write",
+            f"No changes detected for FRED {series_id}, skipping write",
             extra={"source": "fred", "series_id": series_id, "status": "skipped"},
         )
         return data
@@ -137,7 +137,7 @@ def fetch_fred_data(series_id):
     })
 
     logging.info(
-        f"✅ Extracted / Updated FRED: {series_id}",
+        f"Extracted / Updated FRED: {series_id}",
         extra={"source": "fred", "series_id": series_id, "status": "updated"},
     )
     return data
@@ -181,7 +181,7 @@ def fetch_bls_data(series_dict, start_year, end_year):
 
     if old_hash == new_hash:
         logging.info(
-            "⏩ No changes detected for BLS batch pull",
+            "No changes detected for BLS batch pull",
             extra={"source": "bls", "status": "skipped"},
         )
         return data
@@ -196,7 +196,7 @@ def fetch_bls_data(series_dict, start_year, end_year):
     })
 
     logging.info(
-        "✅ Extracted / Updated BLS Batch",
+        "Extracted / Updated BLS Batch",
         extra={"source": "bls", "status": "updated"},
     )
     return data
@@ -292,7 +292,7 @@ def fetch_ers_price_outlook():
 
     if old_hash == new_hash:
         logging.info(
-            "⏩ No changes detected for ERS CPI Forecasts, skipping write",
+            "No changes detected for ERS CPI Forecasts, skipping write",
             extra={"source": "ers", "dataset": "cpi_forecasts", "status": "skipped"},
         )
         return data
@@ -307,7 +307,7 @@ def fetch_ers_price_outlook():
     })
 
     logging.info(
-        "✅ Extracted / Updated ERS CPI Forecasts",
+        "Extracted / Updated ERS CPI Forecasts",
         extra={"source": "ers", "dataset": "cpi_forecasts", "status": "updated"},
     )
     return data

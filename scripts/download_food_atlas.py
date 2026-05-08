@@ -34,7 +34,7 @@ _DATA_PAGE_URL = (
     "data-access-and-documentation-downloads/"
 )
 
-# Right-click the XLSX button on _DATA_PAGE_URL → Copy link address → paste here
+# Right-click the XLSX button on _DATA_PAGE_URL -> Copy link address -> paste here
 _FALLBACK_ATLAS_URL = "https://www.ers.usda.gov/media/5569/food-environment-atlas-data-download.xlsx?v=61287"
 
 STL_FIPS = {"29189", "29510"}  # St. Louis County and St. Louis City
@@ -84,7 +84,7 @@ def get_atlas_url() -> str:
             "\nERROR: No Atlas URL discovered and _FALLBACK_ATLAS_URL is not set.\n"
             "\nTo fix:\n"
             f"  1. Open in your browser: {_DATA_PAGE_URL}\n"
-            "  2. Right-click the XLSX download button → Copy link address\n"
+            "  2. Right-click the XLSX download button -> Copy link address\n"
             "  3. Paste it into _FALLBACK_ATLAS_URL in scripts/download_food_atlas.py\n"
         )
         sys.exit(1)
@@ -187,8 +187,8 @@ def main():
     with open(_OUTPUT_META, "w") as f:
         json.dump(meta, f, indent=2)
 
-    print(f"\n✅  {len(records)} rows  →  {_OUTPUT_DATA}")
-    print(f"✅  Metadata        →  {_OUTPUT_META}")
+    print(f"\n{len(records)} rows written to {_OUTPUT_DATA}")
+    print(f"Metadata written to {_OUTPUT_META}")
     print("\nCommit both files to the repo.")
     print(f"Re-run only when the Atlas is updated (see 'data_page' in the meta file).")
 
