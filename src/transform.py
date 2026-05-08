@@ -132,40 +132,6 @@ def combine_fact_tables(
     )
 
 
-def parse_census_msrs(data: list, series_id: str, series_name: str) -> pd.DataFrame:
-    """
-    Parse a raw Census MSRS API response (list of lists) into a normalised DataFrame.
-
-    Census returns rows as a list of lists where the first list is the header.
-    TIME_SLOT_NAME format is 'MMM YYYY' (e.g. 'JAN 2024'), coerced to the first
-    day of that month.  Rows with unparseable dates are dropped.
-
-    Parameters
-    ----------
-    data        : list of lists — full Census API response
-    series_id   : technical series identifier, e.g. 'CENSUS_MSRS_MO_4451'
-    series_name : human-readable config key, e.g. 'GROCERY_SALES_MO'
-
-    Returns
-    -------
-    DataFrame with columns: series_id, series_name, date (datetime64), value (float64), source
-    Sorted oldest-first by date.
-    """
-    df = pd.DataFrame(data[1:], columns=data[0])
-    df = df[["TIME_SLOT_NAME", "DATA_VALUE"]].copy()
-    df["date"] = pd.to_datetime(df["TIME_SLOT_NAME"], format="%b %Y", errors="coerce")
-    df["value"] = pd.to_numeric(df["DATA_VALUE"], errors="coerce")
-    df["series_id"] = series_id
-    df["series_name"] = series_name
-    df["source"] = "CENSUS"
-    df = df.dropna(subset=["date"])
-    return (
-        df[["series_id", "series_name", "date", "value", "source"]]
-        .sort_values("date")
-        .reset_index(drop=True)
-    )
-
-
 def parse_ers_csv(data: dict, category_map: dict, start_year: int) -> pd.DataFrame:
     """
     Parse an ERS CPI Forecasts dict (rows stored as list of dicts) into a normalised DataFrame.
