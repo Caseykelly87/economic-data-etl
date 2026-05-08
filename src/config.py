@@ -35,7 +35,7 @@ FRED_SERIES = {
     "SENTIMENT": "UMCSENT",       # Consumer Sentiment
     
     # Macro Drivers
-    "CPI_ALL": "CPIAUCSL",        # Consumer Price Index [cite: 1]
+    "CPI_ALL": "CPIAUCSL",        # Consumer Price Index
     "GDP_REAL": "GDPC1",          # Real GDP
     "UNRATE": "UNRATE",           # Unemployment Rate
     "SAVINGS_RATE": "PSAVERT",    # Personal Saving Rate
