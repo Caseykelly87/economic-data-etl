@@ -69,7 +69,6 @@ def run_pipeline():
         fact_df = combine_fact_tables(fred_frames, bls_frame, extra_frames=[ers_frame])
         dim_df  = build_dim_series(FRED_SERIES, BLS_SERIES, ers_series=ERS_SERIES)
 
-
     except Exception as e:
         logging.error(
             f"Pipeline failed during transform: {e}",

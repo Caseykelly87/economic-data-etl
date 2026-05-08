@@ -82,13 +82,12 @@ def build_dim_series(
     ----------
     fred_series   : FRED_SERIES dict from config   (name -> series_id)
     bls_series    : BLS_SERIES dict from config    (name -> series_id)
-    census_series : CENSUS_SERIES dict (optional)  (name -> series_id)
     ers_series    : ERS_SERIES dict (optional)     (name -> series_id)
 
     Returns
     -------
     DataFrame with columns: series_id, series_name, source
-    One row per configured series (FRED, BLS, CENSUS, ERS).
+    One row per configured series (FRED, BLS, ERS).
     """
     rows = [
         {"series_id": sid, "series_name": name, "source": "FRED"}
@@ -103,7 +102,6 @@ def build_dim_series(
     return pd.DataFrame(rows, columns=["series_id", "series_name", "source"])
 
 
-
 def combine_fact_tables(
     fred_frames: list,
     bls_frame: pd.DataFrame,
@@ -111,13 +109,13 @@ def combine_fact_tables(
 ) -> pd.DataFrame:
     """
     Merge all per-series FRED DataFrames with the BLS batch DataFrame and any
-    additional source DataFrames (e.g. Census MSRS, ERS forecasts).
+    additional source DataFrames (e.g. ERS forecasts).
 
     Parameters
     ----------
     fred_frames  : list of DataFrames, one per FRED series (output of parse_fred_observations)
     bls_frame    : single DataFrame for all BLS series (output of parse_bls_batch)
-    extra_frames : optional list of additional source DataFrames (e.g. Census, ERS)
+    extra_frames : optional list of additional source DataFrames (e.g. ERS)
 
     Returns
     -------
@@ -127,40 +125,6 @@ def combine_fact_tables(
     all_frames = fred_frames + [bls_frame] + (extra_frames or [])
     return (
         pd.concat(all_frames, ignore_index=True)
-        .sort_values("date")
-        .reset_index(drop=True)
-    )
-
-
-def parse_census_msrs(data: list, series_id: str, series_name: str) -> pd.DataFrame:
-    """
-    Parse a raw Census MSRS API response (list of lists) into a normalised DataFrame.
-
-    Census returns rows as a list of lists where the first list is the header.
-    TIME_SLOT_NAME format is 'MMM YYYY' (e.g. 'JAN 2024'), coerced to the first
-    day of that month.  Rows with unparseable dates are dropped.
-
-    Parameters
-    ----------
-    data        : list of lists — full Census API response
-    series_id   : technical series identifier, e.g. 'CENSUS_MSRS_MO_4451'
-    series_name : human-readable config key, e.g. 'GROCERY_SALES_MO'
-
-    Returns
-    -------
-    DataFrame with columns: series_id, series_name, date (datetime64), value (float64), source
-    Sorted oldest-first by date.
-    """
-    df = pd.DataFrame(data[1:], columns=data[0])
-    df = df[["TIME_SLOT_NAME", "DATA_VALUE"]].copy()
-    df["date"] = pd.to_datetime(df["TIME_SLOT_NAME"], format="%b %Y", errors="coerce")
-    df["value"] = pd.to_numeric(df["DATA_VALUE"], errors="coerce")
-    df["series_id"] = series_id
-    df["series_name"] = series_name
-    df["source"] = "CENSUS"
-    df = df.dropna(subset=["date"])
-    return (
-        df[["series_id", "series_name", "date", "value", "source"]]
         .sort_values("date")
         .reset_index(drop=True)
     )

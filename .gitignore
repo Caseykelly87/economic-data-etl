@@ -5,6 +5,9 @@ __pycache__/
 .claude/
 .coverage
 
+# Project-private notes (never commit; ignored even if added by accident)
+CLAUDE*.md
+
 # Local data artifacts are ignored, with one exception: the canonical
 # pipeline fixtures under data/processed/canonical/ ARE committed —
 # they are the authoritative downstream input for the api repository's
