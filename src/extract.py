@@ -230,12 +230,12 @@ def get_dynamic_ers_url() -> str:
     try:
         response = requests.get(ERS_SUMMARY_URL, headers=_ERS_BROWSER_HEADERS, timeout=10)
         if response.status_code == 200:
-                        match = re.search(
+            match = re.search(
                 r'href="([^"]*(?:consumer.price.index|CPIforecast|cpi_forecast|changes-in-consumer)[^"]*\.csv[^"]*)"',
                 response.text,
                 re.IGNORECASE,
             )
-        if match:
+            if match:
                 raw = match.group(1)
                 url = raw if raw.startswith("http") else "https://www.ers.usda.gov" + raw
                 logging.info(
