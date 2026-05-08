@@ -20,11 +20,12 @@ Log level
 
 Windows note
 ------------
-On Windows, stdout defaults to cp1252 encoding which can't render
-the non-ASCII characters used in some pre-existing log strings (emoji
-like the warning, skip, and check marks in extract.py). The
-configurator reconfigures stdout to utf-8 with errors="replace" to
-avoid UnicodeEncodeError when output is piped or redirected.
+On Windows, stdout defaults to cp1252 encoding which cannot render
+arbitrary non-ASCII characters that may appear in log message strings
+or in third-party library output. The configurator reconfigures
+stdout to utf-8 with errors="replace" as a defensive measure so that
+piped or redirected output never raises UnicodeEncodeError regardless
+of what content downstream code emits.
 """
 
 from __future__ import annotations
