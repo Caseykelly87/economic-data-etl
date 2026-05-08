@@ -82,13 +82,12 @@ def build_dim_series(
     ----------
     fred_series   : FRED_SERIES dict from config   (name -> series_id)
     bls_series    : BLS_SERIES dict from config    (name -> series_id)
-    census_series : CENSUS_SERIES dict (optional)  (name -> series_id)
     ers_series    : ERS_SERIES dict (optional)     (name -> series_id)
 
     Returns
     -------
     DataFrame with columns: series_id, series_name, source
-    One row per configured series (FRED, BLS, CENSUS, ERS).
+    One row per configured series (FRED, BLS, ERS).
     """
     rows = [
         {"series_id": sid, "series_name": name, "source": "FRED"}
@@ -111,13 +110,13 @@ def combine_fact_tables(
 ) -> pd.DataFrame:
     """
     Merge all per-series FRED DataFrames with the BLS batch DataFrame and any
-    additional source DataFrames (e.g. Census MSRS, ERS forecasts).
+    additional source DataFrames (e.g. ERS forecasts).
 
     Parameters
     ----------
     fred_frames  : list of DataFrames, one per FRED series (output of parse_fred_observations)
     bls_frame    : single DataFrame for all BLS series (output of parse_bls_batch)
-    extra_frames : optional list of additional source DataFrames (e.g. Census, ERS)
+    extra_frames : optional list of additional source DataFrames (e.g. ERS)
 
     Returns
     -------
