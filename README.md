@@ -5,7 +5,7 @@ A Python ETL repository containing two pipelines that share infrastructure but a
 - **Macro pipeline** — ingests 14 U.S. macroeconomic indicators from the FRED, BLS, and USDA ERS public data sources, normalizes them into a tidy long-format schema, and upserts them into a SQL database.
 - **Grocery pipeline** — ingests CSV output from the upstream `knot-shore-grocery-simulation-engine`, validates schemas, applies static-band detection rules, and produces canonical parquet artifacts that downstream API and portal repositories consume.
 
-Both pipelines share configuration, structured logging, and CI. The repository contains 254 tests covering both, with no live API calls or database connections in the test suite.
+Both pipelines share configuration, structured logging, and CI. The repository contains 243 tests covering both, with no live API calls or database connections in the test suite.
 
 ## Table of contents
 
@@ -96,7 +96,7 @@ python -m src.detect_cli \
 ### Run all tests
 
 ```bash
-python -m pytest -q                            # 254 tests, no live api or db calls
+python -m pytest -q                            # 243 tests, no live api or db calls
 python -m pytest --cov=src                     # with coverage
 python -m pytest tests/test_detect_rules.py    # single file
 ```
@@ -315,7 +315,7 @@ Ad-hoc parquet output produced by running `sim_cli` or `detect_cli` directly (e.
 ├── tests/
 │   ├── conftest.py
 │   ├── test_extract.py                  # 30 tests — macro extract + idempotency
-│   ├── test_transform.py                # 56 tests — macro transform + edge cases
+│   ├── test_transform.py                # 45 tests — macro transform + edge cases
 │   ├── test_load.py                     # 16 tests — schema, upsert, idempotency
 │   ├── test_main.py                     # 15 tests — macro pipeline orchestration
 │   ├── test_observability.py            # 3 tests — shared logging configurator
@@ -416,7 +416,7 @@ On Windows, stdout defaults to cp1252 encoding which can't render some non-ASCII
 ## Testing
 
 ```bash
-python -m pytest -q                              # all 254 tests
+python -m pytest -q                              # all 243 tests
 python -m pytest -v                              # verbose
 python -m pytest --cov=src                       # with coverage
 python -m pytest tests/test_detect_rules.py      # single file
