@@ -3,7 +3,7 @@ import json
 import logging
 import hashlib
 import re
-import csv as _csv
+import csv
 import time
 from datetime import datetime
 from io import StringIO
@@ -283,7 +283,7 @@ def fetch_ers_price_outlook():
     response.raise_for_status()
 
 
-    reader = _csv.DictReader(StringIO(response.text))
+    reader = csv.DictReader(StringIO(response.text))
     rows = [dict(row) for row in reader]
     data = {"rows": rows}
 
