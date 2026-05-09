@@ -125,7 +125,7 @@ def _write_dim_stores_parquet(
     return output_path
 
 
-def _run_department_grain(input_root: Path, output_dir: Path) -> Path:
+def run_department_grain(input_root: Path, output_dir: Path) -> Path:
     """Execute the department-grain ingest and return the parquet path.
 
     Mirrors :func:`run` for the store-day grain. Loads dim_stores again
@@ -189,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         if not args.no_departments:
-            _run_department_grain(args.input_root, args.output_dir)
+            run_department_grain(args.input_root, args.output_dir)
     except SimIngestError as exc:
         log.error(
             "sim_ingestion_failed",
