@@ -129,17 +129,15 @@ disk.
   enforces a row-count reconciliation, and writes
   `store_daily_metrics.parquet` to `output_dir`. Returns the parquet
   path.
-- `main(argv: list[str] | None = None) -> int` — argparse + logging
-  wrapper around `run`, `_run_department_grain`, and
-  `_write_dim_stores_parquet`. Returns the process exit code.
-
-**Module-private but accessible via `_` prefix:**
-
-- `_run_department_grain(input_root: Path, output_dir: Path) -> Path` —
+- `run_department_grain(input_root: Path, output_dir: Path) -> Path` —
   the department-grain counterpart to `run`. Writes
-  `department_daily_metrics.parquet`.
-- `_write_dim_stores_parquet(dim_stores: pd.DataFrame, output_dir: Path) -> Path` —
-  writes `dim_stores.parquet`. Called from `main` after `load_dim_stores`.
+  `department_daily_metrics.parquet` and returns its path.
+- `write_dim_stores_parquet(dim_stores: pd.DataFrame, output_dir: Path) -> Path` —
+  writes `dim_stores.parquet` from a previously loaded `dim_stores`
+  DataFrame. Returns the parquet path.
+- `main(argv: list[str] | None = None) -> int` — argparse + logging
+  wrapper around `run`, `run_department_grain`, and
+  `write_dim_stores_parquet`. Returns the process exit code.
 
 **Import-time side effects:** none observable. Module-scope binds three
 filename constants and gets one structlog logger. `configure_logging()`
@@ -150,18 +148,17 @@ run inside `main()`.
 
 - Reads (via `sim_ingest`): the sim engine's `output/` tree.
 - Returns: the path of the written parquet file (from `run` and
-  `_run_department_grain`).
+  `run_department_grain`).
 - Writes (under `output_dir`): `store_daily_metrics.parquet`,
   `department_daily_metrics.parquet`, `dim_stores.parquet`.
 
 **Airflow callability assessment:** clean-with-side-effects-noted. The
-public `run()` function is callable directly. To produce all three
+four public functions are callable directly. To produce all three
 parquet artifacts the way `python -m src.sim_cli` does, an Airflow task
-needs to call `run`, `load_dim_stores` + `_write_dim_stores_parquet`,
-and `_run_department_grain` in sequence. The `_` prefix on the latter
-two signals they are not part of the stable public contract; an
-orchestration extension that calls them is taking on the risk that they
-may be renamed or refactored. See "Open questions" below.
+needs to call `run`, `load_dim_stores` + `write_dim_stores_parquet`,
+and `run_department_grain` in sequence. The side effects (logging
+configuration, env-var mutation) only fire inside `main()`, so calling
+the four functions directly avoids them.
 
 ### `src/detect_rules.py`
 
@@ -265,50 +262,39 @@ engine output via `scripts/build_canonical_fixtures.py`.
 
 ## Known refactor needs
 
-None. All five grocery modules are callable from an Airflow task in
-their current shape. `sim_cli.py` and `detect_cli.py` are rated
-`clean-with-side-effects-noted` rather than `requires-refactor` because
-the side effects (logging configuration, env-var mutation) live inside
-`main()` and are bypassed by calling `run()` and the helpers directly.
-The audit found no module that an Airflow task cannot call as-is.
-
-If a future iteration wants a single public entry point per CLI module
-(rather than a public `run` plus underscore-prefixed helpers), the
-candidate refactor would be to expose `sim_cli.run_all_grains` and
-`sim_cli.write_dim_stores` as public siblings of `run`. That work
-belongs to Prompt A3, not A1.
+No known refactor needs at this time. All five grocery modules are
+callable from an Airflow task in their current shape. `sim_cli.py` and
+`detect_cli.py` are rated `clean-with-side-effects-noted` rather than
+`requires-refactor` because the side effects (logging configuration,
+env-var mutation) live inside `main()` and are bypassed by calling the
+public functions directly.
 
 ## Open questions for orchestration extension
 
 These questions are unresolved by the current source tree and would
-need the user's judgment to settle before A2 drafts the DAG extension.
+need the user's judgment to settle before the DAG extension is drafted.
 
-1. Should the Airflow grocery branch invoke `sim_cli.run` and the
-   private helpers directly, or should A3 first promote
-   `_run_department_grain` and `_write_dim_stores_parquet` to public
-   names so the DAG depends only on stable surface? The current
-   underscore prefix is a stability signal worth respecting.
-2. The grocery pipeline assumes a date-windowed sim engine output tree
+1. The grocery pipeline assumes a date-windowed sim engine output tree
    under `--input-root`. Does the DAG need to parameterize the date
    window (e.g., one Airflow run = one date), or does it run the full
    tree the sim engine produces and let the parquets accumulate? The
    CLIs accept a directory, not a date.
-3. `detect_cli.run` reads `dim_stores` from the sim-output tree, not
+2. `detect_cli.run` reads `dim_stores` from the sim-output tree, not
    from `dim_stores.parquet` written by `sim_cli`. If the orchestration
    repo wants the detection task to depend only on the parquets `sim_cli`
    produced (so the sim-output tree can be cleaned up between tasks),
    detection's input contract needs to widen.
-4. Should the orchestration repo run the simulation engine itself
+3. Should the orchestration repo run the simulation engine itself
    (e.g., a `BashOperator` or `KubernetesPodOperator` invoking the sim
    engine container) before kicking off `sim_cli`? This determines
    whether the DAG's first grocery-side task is "run sim engine" or
    "ingest sim output that already exists on a shared volume."
-5. After `detect_cli` finishes, the API's bundled fixtures need to be
+4. After `detect_cli` finishes, the API's bundled fixtures need to be
    refreshed. Is that a downstream Airflow task that calls
    `scripts/build_canonical_fixtures.py`, or does the API repo poll for
    fresh parquets independently? The contract for invalidating the
    portal's cache is also undefined here.
-6. Where does the rules YAML live in the orchestration container? The
+5. Where does the rules YAML live in the orchestration container? The
    `--rules-path` defaults to `config/detection_rules.yaml` resolved
    from the working directory; an Airflow task running with
    `cwd=/opt/airflow/etl` would resolve that to
