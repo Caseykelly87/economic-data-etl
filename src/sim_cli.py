@@ -106,7 +106,7 @@ def run(input_root: Path, output_dir: Path) -> Path:
     return output_path
 
 
-def _write_dim_stores_parquet(
+def write_dim_stores_parquet(
     dim_stores: pd.DataFrame,
     output_dir: Path,
 ) -> Path:
@@ -180,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
             artifact="dim_stores",
         )
         dim_stores = load_dim_stores(args.input_root)
-        dim_stores_path = _write_dim_stores_parquet(dim_stores, args.output_dir)
+        dim_stores_path = write_dim_stores_parquet(dim_stores, args.output_dir)
         log.info(
             "parquet_written",
             row_count=len(dim_stores),
