@@ -8,6 +8,10 @@ __pycache__/
 # Project-private notes (never commit; ignored even if added by accident)
 CLAUDE*.md
 
+# Scratch directories used by ad-hoc audit / verification scripts
+tmp/
+__tmp__/
+
 # Local data artifacts are ignored, with one exception: the canonical
 # pipeline fixtures under data/processed/canonical/ ARE committed —
 # they are the authoritative downstream input for the api repository's
