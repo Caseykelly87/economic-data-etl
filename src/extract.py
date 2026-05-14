@@ -176,7 +176,7 @@ def fetch_bls_data(series_dict, start_year, end_year):
     if data.get("status") != "REQUEST_SUCCEEDED":
         raise RuntimeError(f"BLS API Error: {data.get('message')}")
 
-    new_hash = compute_hash(data)
+    new_hash = compute_hash(data.get("Results", {}).get("series", []))
     old_hash = metadata.get("last_hash")
 
     if old_hash == new_hash:
