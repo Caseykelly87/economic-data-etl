@@ -92,7 +92,7 @@ def ensure_tables_exist(engine) -> None:
                 series_id   TEXT NOT NULL,
                 series_name TEXT NOT NULL,
                 date        TEXT NOT NULL,
-                value       REAL,
+                value       DOUBLE PRECISION,
                 source      TEXT NOT NULL,
                 PRIMARY KEY (series_id, date)
             )
