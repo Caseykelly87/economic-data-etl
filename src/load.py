@@ -1,11 +1,94 @@
+import logging
+from pathlib import Path
+
 import pandas as pd
-from sqlalchemy import text
+from sqlalchemy import event, text
+
+
+logger = logging.getLogger(__name__)
+
+
+def _sqlite_raw_target(engine_url) -> str:
+    """Resolve the file (or :memory:) to attach as the `raw` schema.
+
+    In-memory engines attach another `:memory:` database — the schema lives
+    for the engine's lifetime, which matches the test fixture pattern.
+    File-based engines attach a sibling file named `<stem>_raw.db` next to
+    the main database, so persistence semantics match the main file.
+    """
+    db = engine_url.database
+    if db in (None, "", ":memory:"):
+        return ":memory:"
+    main_path = Path(db)
+    return (main_path.parent / f"{main_path.stem}_raw.db").as_posix()
+
+
+def _wire_sqlite_raw_attach(engine) -> None:
+    """Register a connect listener that ATTACHes the raw database for SQLite.
+
+    SQLite has no native schemas — `raw.<table>` is interpreted as a table
+    in an attached database named `raw`. The listener fires on every new
+    pooled connection so callers see the schema regardless of pool churn.
+    Marked on the engine so repeat calls are no-ops.
+    """
+    if getattr(engine, "_raw_attach_wired", False):
+        return
+    target = _sqlite_raw_target(engine.url)
+
+    @event.listens_for(engine, "connect")
+    def _attach_raw(dbapi_conn, _record):
+        cur = dbapi_conn.cursor()
+        try:
+            cur.execute(f"ATTACH DATABASE '{target}' AS raw")
+        finally:
+            cur.close()
+
+    engine._raw_attach_wired = True
 
 
 def ensure_tables_exist(engine) -> None:
+    """Create the `raw` schema and the two raw tables if they don't exist.
+
+    PostgreSQL: executes ``CREATE SCHEMA IF NOT EXISTS raw`` so the tables
+    land in the layered-warehouse `raw` zone (raw → staging → marts).
+    SQLite: attaches a sibling (or in-memory) database as `raw`, giving the
+    same ``raw.<table>`` SQL syntax across dialects.
+
+    Idempotent — safe to call repeatedly on the same engine.
+    """
+    dialect = engine.dialect.name
+
+    if dialect == "sqlite":
+        _wire_sqlite_raw_attach(engine)
+
     with engine.connect() as conn:
+        if dialect == "postgresql":
+            conn.execute(text("CREATE SCHEMA IF NOT EXISTS raw"))
+            logger.info(
+                "raw schema ensured",
+                extra={"source": "load", "dialect": dialect, "schema": "raw"},
+            )
+        elif dialect == "sqlite":
+            # Safety net: if a connection from the pool predated the listener
+            # (e.g. ensure_tables_exist is called after the engine was already
+            # connected elsewhere), attach on the current connection too.
+            attached = {row[1] for row in conn.execute(text("PRAGMA database_list"))}
+            if "raw" not in attached:
+                conn.execute(
+                    text(f"ATTACH DATABASE '{_sqlite_raw_target(engine.url)}' AS raw")
+                )
+            logger.info(
+                "raw schema attached",
+                extra={
+                    "source": "load",
+                    "dialect": dialect,
+                    "schema": "raw",
+                    "target": _sqlite_raw_target(engine.url),
+                },
+            )
+
         conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS fact_economic_observations (
+            CREATE TABLE IF NOT EXISTS raw.fact_economic_observations (
                 series_id   TEXT NOT NULL,
                 series_name TEXT NOT NULL,
                 date        TEXT NOT NULL,
@@ -15,7 +98,7 @@ def ensure_tables_exist(engine) -> None:
             )
         """))
         conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS dim_series (
+            CREATE TABLE IF NOT EXISTS raw.dim_series (
                 series_id   TEXT PRIMARY KEY,
                 series_name TEXT NOT NULL,
                 source      TEXT NOT NULL
@@ -41,7 +124,7 @@ def _to_date_str(value) -> str:
 
 def upsert_observations(df: pd.DataFrame, engine) -> dict:
     """
-    Upsert a fact DataFrame into fact_economic_observations.
+    Upsert a fact DataFrame into raw.fact_economic_observations.
 
     Primary key: (series_id, date).
     NaN values are stored as NULL.
@@ -54,7 +137,7 @@ def upsert_observations(df: pd.DataFrame, engine) -> dict:
 
     with engine.connect() as conn:
         existing = pd.read_sql(
-            "SELECT series_id, date, value FROM fact_economic_observations", conn
+            "SELECT series_id, date, value FROM raw.fact_economic_observations", conn
         )
 
     existing_map = {
@@ -80,7 +163,11 @@ def upsert_observations(df: pd.DataFrame, engine) -> dict:
         insert_df = pd.DataFrame(to_insert)
         insert_df["date"] = insert_df["date"].apply(_to_date_str)
         insert_df.to_sql(
-            "fact_economic_observations", engine, if_exists="append", index=False
+            "fact_economic_observations",
+            engine,
+            schema="raw",
+            if_exists="append",
+            index=False,
         )
 
     if to_update:
@@ -88,7 +175,7 @@ def upsert_observations(df: pd.DataFrame, engine) -> dict:
             for row in to_update:
                 conn.execute(
                     text("""
-                        UPDATE fact_economic_observations
+                        UPDATE raw.fact_economic_observations
                         SET value = :value, series_name = :series_name, source = :source
                         WHERE series_id = :series_id AND date = :date
                     """),
@@ -107,11 +194,11 @@ def upsert_observations(df: pd.DataFrame, engine) -> dict:
 
 def upsert_dim_series(df: pd.DataFrame, engine) -> dict:
     """
-    Upsert a dimension DataFrame into dim_series.
+    Upsert a dimension DataFrame into raw.dim_series.
 
     Primary key: series_id. Existing rows are never overwritten.
     Existing dim rows are never overwritten — series metadata is stable.
-    
+
     Returns
     -------
     dict with keys: inserted, unchanged
@@ -121,7 +208,7 @@ def upsert_dim_series(df: pd.DataFrame, engine) -> dict:
     # NOTE: loads the full table into memory for comparison.
     # Acceptable for small datasets; revisit if row counts grow large.
     with engine.connect() as conn:
-        existing = pd.read_sql("SELECT series_id FROM dim_series", conn)
+        existing = pd.read_sql("SELECT series_id FROM raw.dim_series", conn)
 
     existing_ids = set(existing["series_id"]) if not existing.empty else set()
 
@@ -129,7 +216,13 @@ def upsert_dim_series(df: pd.DataFrame, engine) -> dict:
     stats["unchanged"] = len(df) - len(new_rows)
 
     if not new_rows.empty:
-        new_rows.to_sql("dim_series", engine, if_exists="append", index=False)
+        new_rows.to_sql(
+            "dim_series",
+            engine,
+            schema="raw",
+            if_exists="append",
+            index=False,
+        )
         stats["inserted"] = len(new_rows)
 
     return stats
