@@ -2,7 +2,6 @@ import json
 import pytest
 import requests
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import MagicMock
 from src import extract
 

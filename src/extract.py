@@ -7,7 +7,6 @@ import csv
 import time
 from datetime import datetime
 from io import StringIO
-from pathlib import Path
 
 import requests
 
@@ -277,8 +276,8 @@ def fetch_ers_price_outlook():
     response = requests.get(csv_url, headers=headers, timeout=15)
     if response.status_code == 404:
         raise ValueError(
-            f"ERS CSV URL returned 404. Update _ERS_FALLBACK_URL in extract.py.\n"
-            f"Get the current URL from: https://www.ers.usda.gov/data-products/food-price-outlook/"
+            "ERS CSV URL returned 404. Update _ERS_FALLBACK_URL in extract.py.\n"
+            "Get the current URL from: https://www.ers.usda.gov/data-products/food-price-outlook/"
         )
     response.raise_for_status()
 
