@@ -5,6 +5,7 @@ python-dotenv
 pytest
 pytest-cov
 pytest-mock
+ruff
 sqlalchemy
 psycopg2-binary
 pyarrow
