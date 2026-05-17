@@ -1,5 +1,7 @@
 # Economic Data ETL
 
+[![Tests](https://github.com/Caseykelly87/economic-data-etl/actions/workflows/test.yml/badge.svg)](https://github.com/Caseykelly87/economic-data-etl/actions/workflows/test.yml)
+
 A Python ETL repository containing two pipelines that share infrastructure but address different data domains:
 
 - **Macro pipeline** — ingests 14 U.S. macroeconomic indicators from the FRED, BLS, and USDA ERS public data sources, normalizes them into a tidy long-format schema, and upserts them into a SQL database.
