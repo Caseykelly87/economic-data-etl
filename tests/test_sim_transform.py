@@ -153,15 +153,20 @@ def test_build_avg_basket_size_nan_when_zero_transactions():
     assert pd.isna(result["avg_basket_size"].iloc[0])
 
 
-def test_build_avg_basket_size_nan_does_not_raise():
-    """A zero transaction count must not bubble as an exception."""
-    sim_transform.build_store_daily_metrics(
+def test_build_avg_basket_size_mixed_zero_and_nonzero():
+    """A zero-transaction row yields NaN; a normal row in the same frame
+    still gets the correct quotient. One unparseable-basket row must not
+    poison the rest, and the transform must not raise."""
+    result = sim_transform.build_store_daily_metrics(
         [
             _record(date(2024, 1, 1), 1, 500.0, 0),
             _record(date(2024, 1, 1), 2, 1000.0, 100),
         ],
         _dim_stores(),
     )
+    by_store = result.set_index("store_id")["avg_basket_size"]
+    assert pd.isna(by_store[1])                 # 0 transactions → NaN
+    assert by_store[2] == pytest.approx(10.0)   # 1000.0 / 100
 
 
 # ==========================================================
@@ -236,10 +241,15 @@ def test_build_accepts_all_known_store_ids():
 
 
 def test_build_never_touches_filesystem(tmp_path, monkeypatch):
-    """Monkey-patch open() / Path methods would be overkill; instead prove the
-    transform accepts in-memory records constructed without any file IO and
-    returns a valid result. Combined with direct inspection of the module's
-    import list (pandas + schemas + exceptions only), this is sufficient."""
-    records = [_record(date(2024, 1, 1), 1, 1000.0, 100)]
+    """The transform accepts in-memory records constructed without any file
+    IO; combined with the module's import list (pandas + schemas +
+    exceptions only) this proves it has no source-format dependency. The
+    in-memory record must still transform to the correct target row."""
+    records = [_record(date(2024, 1, 1), 1, 1000.0, 100, labor_pct=0.105)]
     result = sim_transform.build_store_daily_metrics(records, _dim_stores())
     assert len(result) == 1
+    row = result.iloc[0]
+    assert row["total_sales"] == pytest.approx(1000.0)
+    assert row["transaction_count"] == 100
+    assert row["avg_basket_size"] == pytest.approx(10.0)   # 1000.0 / 100
+    assert row["labor_cost_pct"] == pytest.approx(0.105)

@@ -19,10 +19,20 @@ def test_ensure_tables_creates_dim_table(db_engine):
     assert inspect(db_engine).has_table("dim_series", schema="raw")
 
 
-def test_ensure_tables_is_idempotent(db_engine):
-    """Calling twice must not raise — tables use CREATE IF NOT EXISTS semantics."""
+def test_ensure_tables_is_idempotent(db_engine, sample_observations_df):
+    """Calling twice must not raise, and the second call must not drop data:
+    CREATE IF NOT EXISTS, never CREATE OR REPLACE. Rows written between the
+    two calls must survive the repeat invocation."""
     load.ensure_tables_exist(db_engine)
-    load.ensure_tables_exist(db_engine)
+    load.upsert_observations(sample_observations_df, db_engine)
+
+    load.ensure_tables_exist(db_engine)  # repeat call with data already present
+
+    with db_engine.connect() as conn:
+        count = conn.execute(
+            text("SELECT COUNT(*) FROM raw.fact_economic_observations")
+        ).scalar()
+    assert count == 3  # the three pre-existing rows survived the repeat call
 
 
 # ==========================================================
