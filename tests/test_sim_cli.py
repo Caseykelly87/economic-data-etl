@@ -11,6 +11,7 @@ import hashlib
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from src import sim_cli
 from src.schemas import DIM_STORES_FULL_COLUMNS, STORE_DAILY_METRICS_COLUMNS
@@ -33,7 +34,14 @@ def test_cli_writes_parquet_on_happy_path(tmp_path, sim_happy_root):
     assert (tmp_path / sim_cli.OUTPUT_FILENAME).is_file()
 
 
-def test_cli_parquet_has_target_schema(tmp_path, sim_happy_root):
+def test_cli_parquet_has_target_schema_and_values(tmp_path, sim_happy_root):
+    """The written parquet must carry the target schema *and* the correct
+    transformed values for a known store-day — not just the right shape.
+
+    Store 1 on 2024-06-15 in the happy fixture's store_summary.csv has
+    net_sales_total 87400.00, transactions_total 2300, labor_cost_pct
+    0.1050; avg_basket_size is the derived quotient.
+    """
     sim_cli.main(
         [
             "--input-root",
@@ -45,6 +53,14 @@ def test_cli_parquet_has_target_schema(tmp_path, sim_happy_root):
     df = pd.read_parquet(tmp_path / sim_cli.OUTPUT_FILENAME)
     assert tuple(df.columns) == STORE_DAILY_METRICS_COLUMNS
     assert len(df) == 24
+
+    store_1 = df[(df["store_id"] == 1) & (df["date"].astype(str) == "2024-06-15")]
+    assert len(store_1) == 1
+    row = store_1.iloc[0]
+    assert row["total_sales"] == pytest.approx(87400.00)
+    assert row["transaction_count"] == 2300
+    assert row["avg_basket_size"] == pytest.approx(87400.00 / 2300)
+    assert row["labor_cost_pct"] == pytest.approx(0.1050)
 
 
 def test_cli_repeat_runs_are_byte_identical(tmp_path, sim_happy_root):

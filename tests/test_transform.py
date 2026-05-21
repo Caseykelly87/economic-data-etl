@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 from src import transform
 
 
@@ -41,9 +42,15 @@ def test_parse_fred_date_column_is_datetime(raw_fred_json):
     assert pd.api.types.is_datetime64_any_dtype(result["date"])
 
 
-def test_parse_fred_value_column_is_float(raw_fred_json):
+def test_parse_fred_values_parsed_correctly(raw_fred_json):
+    """The value column must carry the actual numbers from the response,
+    not just the right dtype. raw_fred_json holds "5.0", ".", "5.2"."""
     result = transform.parse_fred_observations(raw_fred_json, "UNRATE", "UNRATE")
     assert result["value"].dtype == "float64"
+    by_date = result.set_index("date")["value"]
+    assert by_date[pd.Timestamp("2024-01-01")] == pytest.approx(5.0)
+    assert pd.isna(by_date[pd.Timestamp("2024-02-01")])  # "." → NaN
+    assert by_date[pd.Timestamp("2024-03-01")] == pytest.approx(5.2)
 
 
 def test_parse_fred_missing_value_dot_becomes_nan(raw_fred_json):
@@ -107,9 +114,19 @@ def test_parse_bls_date_column_is_datetime(raw_bls_json):
     assert pd.api.types.is_datetime64_any_dtype(result["date"])
 
 
-def test_parse_bls_value_column_is_float(raw_bls_json):
+def test_parse_bls_values_parsed_correctly(raw_bls_json):
+    """Values must be the actual numbers, attached to the right month after
+    the most-recent-first → oldest-first normalisation. raw_bls_json holds
+    CUUR0000SA0 = 312.0/313.5/314.2 for Jan/Feb/Mar 2024."""
     result = transform.parse_bls_batch(raw_bls_json, BLS_SERIES_MAP)
     assert result["value"].dtype == "float64"
+    cpi = result[result["series_id"] == "CUUR0000SA0"].set_index("date")["value"]
+    assert cpi[pd.Timestamp("2024-01-01")] == pytest.approx(312.0)
+    assert cpi[pd.Timestamp("2024-02-01")] == pytest.approx(313.5)
+    assert cpi[pd.Timestamp("2024-03-01")] == pytest.approx(314.2)
+    wages = result[result["series_id"] == "CES0500000003"].set_index("date")["value"]
+    assert wages[pd.Timestamp("2024-01-01")] == pytest.approx(34.55)
+    assert wages[pd.Timestamp("2024-03-01")] == pytest.approx(34.85)
 
 
 def test_parse_bls_series_name_mapped_from_series_map(raw_bls_json):
@@ -186,9 +203,18 @@ def test_parse_ers_csv_date_column_is_datetime():
     assert pd.api.types.is_datetime64_any_dtype(result["date"])
 
 
-def test_parse_ers_csv_value_column_is_float():
+def test_parse_ers_csv_values_parsed_correctly():
+    """The Annual column resolves as the value, mapped to the right series.
+    _ERS_RAW holds All food 2.1 (2024) / 2.5 (2025), Food at home 1.8,
+    Food away from home 4.2."""
     result = transform.parse_ers_csv(_ERS_RAW, ERS_CATEGORY_MAP_TEST, 2024)
     assert result["value"].dtype == "float64"
+    all_food = result[result["series_id"] == "ERS_ALL_FOOD"].set_index("date")["value"]
+    assert all_food[pd.Timestamp("2024-01-01")] == pytest.approx(2.1)
+    assert all_food[pd.Timestamp("2025-01-01")] == pytest.approx(2.5)
+    by_series = result.set_index("series_id")["value"]
+    assert by_series["ERS_FOOD_HOME"] == pytest.approx(1.8)
+    assert by_series["ERS_FOOD_AWAY"] == pytest.approx(4.2)
 
 
 def test_parse_ers_csv_source_label():

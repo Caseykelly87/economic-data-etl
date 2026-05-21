@@ -1,0 +1,9 @@
+store_id,store_name,address,city,zip,county_fips,trade_area_profile,sqft,open_date,base_daily_revenue
+1,Knot Shore — Kirkwood,10250 Manchester Rd,Kirkwood,63122,29189,suburban-family,45000,2009-04-15,95000.0
+2,Knot Shore — Chesterfield,18180 Chesterfield Airport Rd,Chesterfield,63017,29189,suburban-family,52000,2011-08-22,110000.0
+3,Knot Shore — Oakville,5740 Telegraph Rd,Oakville,63129,29189,suburban-family,42000,2013-03-10,85000.0
+4,Knot Shore — Central West End,4340 Lindell Blvd,St. Louis,63108,29510,urban-dense,28000,2007-11-05,68000.0
+5,Knot Shore — Soulard,1701 S 7th St,St. Louis,63104,29510,urban-dense,25000,2010-06-18,58000.0
+6,Knot Shore — Tower Grove,3200 S Grand Blvd,St. Louis,63110,29510,urban-dense,26000,2012-09-28,62000.0
+7,Knot Shore — North County,8200 W Florissant Ave,Jennings,63136,29189,value-market,35000,2015-02-14,55000.0
+8,Knot Shore — South City,4140 Gravois Ave,St. Louis,63116,29510,value-market,32000,2016-07-01,52000.0
