@@ -188,8 +188,16 @@ RULE_IDS: tuple[str, ...] = (
     "avg_ticket_band",
     "transactions_band",
     "yoy_comp",
+    "department_coverage",
 )
-"""Allowed values for the ``rule_id`` column, in canonical order."""
+"""Allowed values for the ``rule_id`` column, in canonical order.
+
+The first five are statistical-band rules evaluated at store-day grain.
+``department_coverage`` is a structural-integrity rule evaluated at
+store-day grain against the department-grain metrics frame; it checks
+the shape of the data (department row count, duplicate department ids)
+rather than whether a value falls inside a band.
+"""
 
 KNOWN_PROFILES: frozenset[str] = frozenset(
     {"suburban-family", "urban-dense", "value-market"}

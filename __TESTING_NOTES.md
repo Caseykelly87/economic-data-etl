@@ -95,10 +95,16 @@ The load-bearing logic and the tests that hold it.
   (`revenue_band`, `labor_pct_band`, `avg_ticket_band`,
   `transactions_band`, `yoy_comp`), severity scoring as
   `distance_from_band / band_half_width`, and each rule's skip behavior.
+  The same file covers the `department_coverage` structural-integrity
+  rule: it reads the department-grain frame and flags store-days whose
+  department row count departs from the ten-department baseline or that
+  carry a duplicated `department_id`.
 - **Anomaly flagging output** — `test_detect_cli.py`,
   `test_detect_integration.py`. The anomalous fixture fires its expected
   `(date, store_id, rule_id)` set; the happy fixture fires nothing; the
-  flags parquet is byte-identical across runs.
+  flags parquet is byte-identical across runs. `test_detect_cli.py` also
+  exercises the `--department-metrics-path` and `--dim-stores-path`
+  inputs that drive the structural rule.
 
 Calendar-dimension joining is listed as a platform hot path but is not
 exercised at this layer: `store_daily_metrics` and `department_daily_metrics`
@@ -133,6 +139,35 @@ The three tests assert:
 A failure here after regenerating the fixture means the sim engine's
 output changed in a way the ETL must account for — which is the signal
 the contract test exists to surface.
+
+## Structural-integrity detection
+
+Detection began as five statistical-band rules evaluated at store-day
+grain: each checks whether a value — revenue, labor percentage, average
+ticket, transaction count, year-over-year ratio — falls inside an
+expected band. Those rules never read the department-grain frame, so
+they cannot see irregularities in the *shape* of that data: a store-day
+missing a department's row, or carrying the same `department_id` twice.
+
+The canonical `department_daily_metrics.parquet` carries 52 such
+store-days — 39 with nine department rows (one department absent) and 13
+with eleven (one department duplicated). These are upstream simulation
+engine injections, not an ETL defect, and they pass schema validation
+because each individual row is well-formed. The `department_coverage`
+rule covers that gap. It evaluates one group per `(date, store_id)` on
+the department-grain frame and fires when the row count is not the
+configured `expected_row_count` or when a `department_id` repeats.
+
+The contract test for a structural rule has a different shape from the
+band-rule contract. A band rule's contract is "values inside the band
+produce no flag" (`test_sim_engine_contract.py`). A structural rule's
+contract is "the rule fires on the known structural irregularities and
+nowhere else": `test_detect_structural_contract.py` reads the committed
+canonical, asserts the rule fires on exactly the 52 irregular
+store-days, and asserts the missing-department and duplicated-department
+cases stay distinguishable by their flagged row count (9 versus 11). It
+also pins the regenerated `anomaly_flags.parquet` at 883 rows — the 52
+structural flags plus the 831 unchanged statistical-band flags.
 
 ## Test categories observed
 

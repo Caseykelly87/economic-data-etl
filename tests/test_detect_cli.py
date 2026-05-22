@@ -9,6 +9,7 @@ exit code 1.
 
 from __future__ import annotations
 
+from datetime import date
 import hashlib
 from pathlib import Path
 
@@ -34,6 +35,52 @@ def rules_path(request):
 def _ingest(input_root: Path, output_dir: Path) -> Path:
     sim_cli.main(["--input-root", str(input_root), "--output-dir", str(output_dir)])
     return output_dir / sim_cli.OUTPUT_FILENAME
+
+
+def _dept_rows(d: date, store_id: int, department_ids: list[int]) -> list[dict]:
+    """department_daily_metrics rows for one store-day."""
+    return [
+        {
+            "date": d,
+            "store_id": store_id,
+            "department_id": dept_id,
+            "net_sales": 1000.0,
+            "transactions": 50,
+            "units_sold": 120,
+            "gross_margin_pct": 0.30,
+        }
+        for dept_id in department_ids
+    ]
+
+
+def _write_detection_inputs(
+    tmp_path: Path, department_rows: list[dict],
+) -> tuple[Path, Path, Path]:
+    """Write minimal store-metrics, dim_stores, and department-metrics
+    parquets to ``tmp_path``. The single store-day sits inside every band
+    so the only flags that can fire are structural ones. Returns the three
+    parquet paths."""
+    d = date(2024, 6, 15)
+    store_metrics = pd.DataFrame({
+        "date": [d],
+        "store_id": pd.Series([1], dtype="int64"),
+        "total_sales": [95000.0],
+        "transaction_count": pd.Series([2500], dtype="int64"),
+        "avg_basket_size": [38.0],
+        "labor_cost_pct": [0.105],
+    })
+    dim_stores = pd.DataFrame({
+        "store_id": pd.Series([1], dtype="int64"),
+        "base_daily_revenue": [95000.0],
+        "trade_area_profile": ["suburban-family"],
+    })
+    metrics_path = tmp_path / "store_daily_metrics.parquet"
+    dim_path = tmp_path / "dim_stores.parquet"
+    dept_path = tmp_path / "department_daily_metrics.parquet"
+    store_metrics.to_parquet(metrics_path, index=False)
+    dim_stores.to_parquet(dim_path, index=False)
+    pd.DataFrame(department_rows).to_parquet(dept_path, index=False)
+    return metrics_path, dim_path, dept_path
 
 
 # ==============================================================================
@@ -201,6 +248,69 @@ def test_cli_exits_nonzero_on_metrics_missing_required_column(
     exit_code = detect_cli.main([
         "--metrics-path", str(metrics_path),
         "--sim-output-root", str(sim_happy_root),
+        "--rules-path", str(rules_path),
+        "--output-dir", str(out),
+    ])
+    assert exit_code == 1
+
+
+# ==============================================================================
+# Structural rule — department metrics and dim_stores parquet inputs
+# ==============================================================================
+
+
+def test_cli_department_coverage_fires_with_department_metrics(tmp_path, rules_path):
+    """--department-metrics-path drives the structural rule; a store-day
+    missing a department surfaces a department_coverage flag. The run also
+    exercises --dim-stores-path as the dim_stores source."""
+    dept_rows = _dept_rows(date(2024, 6, 15), 1, list(range(1, 10)))  # 9 of 10
+    metrics_path, dim_path, dept_path = _write_detection_inputs(tmp_path, dept_rows)
+    out = tmp_path / "flags"
+    exit_code = detect_cli.main([
+        "--metrics-path", str(metrics_path),
+        "--department-metrics-path", str(dept_path),
+        "--dim-stores-path", str(dim_path),
+        "--rules-path", str(rules_path),
+        "--output-dir", str(out),
+    ])
+    assert exit_code == 0
+    df = pd.read_parquet(out / detect_cli.OUTPUT_FILENAME)
+    assert tuple(df.columns) == ANOMALY_FLAG_COLUMNS
+    structural = df[df["rule_id"] == "department_coverage"]
+    assert len(structural) == 1
+    assert structural["actual_value"].iloc[0] == 9.0
+    assert structural["severity_level"].iloc[0] == "warning"
+
+
+def test_cli_skips_structural_rule_without_department_metrics(tmp_path, rules_path):
+    """Omitting --department-metrics-path skips the structural rule; the
+    --dim-stores-path source still drives the band rules to a clean run."""
+    dept_rows = _dept_rows(date(2024, 6, 15), 1, list(range(1, 10)))  # would fire
+    metrics_path, dim_path, _ = _write_detection_inputs(tmp_path, dept_rows)
+    out = tmp_path / "flags"
+    exit_code = detect_cli.main([
+        "--metrics-path", str(metrics_path),
+        "--dim-stores-path", str(dim_path),
+        "--rules-path", str(rules_path),
+        "--output-dir", str(out),
+    ])
+    assert exit_code == 0
+    df = pd.read_parquet(out / detect_cli.OUTPUT_FILENAME)
+    assert (df["rule_id"] == "department_coverage").sum() == 0
+
+
+def test_cli_exits_nonzero_on_department_metrics_missing_column(tmp_path, rules_path):
+    """A department parquet lacking department_id must not be silently used."""
+    dept_rows = _dept_rows(date(2024, 6, 15), 1, list(range(1, 11)))
+    metrics_path, dim_path, dept_path = _write_detection_inputs(tmp_path, dept_rows)
+    pd.read_parquet(dept_path).drop(columns=["department_id"]).to_parquet(
+        dept_path, index=False,
+    )
+    out = tmp_path / "flags"
+    exit_code = detect_cli.main([
+        "--metrics-path", str(metrics_path),
+        "--department-metrics-path", str(dept_path),
+        "--dim-stores-path", str(dim_path),
         "--rules-path", str(rules_path),
         "--output-dir", str(out),
     ])

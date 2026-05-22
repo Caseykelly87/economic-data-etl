@@ -6,7 +6,8 @@ returns an ``anomaly_flags`` DataFrame. It performs no IO outside of
 :func:`load_rules_config`, which reads the YAML config; everything else
 is pandas + numpy + the schema/exception contracts.
 
-The five rules evaluate at store-day grain:
+Five statistical-band rules evaluate at store-day grain against the
+``store_daily_metrics`` frame:
 
 * ``revenue_band`` — total_sales vs ``base_daily_revenue`` ± ``band_pct``
 * ``labor_pct_band`` — labor_cost_pct vs profile center ± ``half_width_pp``
@@ -14,9 +15,19 @@ The five rules evaluate at store-day grain:
 * ``transactions_band`` — transaction_count vs ``base_daily_revenue / avg_ticket_center`` ± ``band_pct``
 * ``yoy_comp`` — current/T-365 sales ratio outside ``[ratio_lower, ratio_upper]``
 
-Severity bucketing: ``info`` if score ≤ ``info_max``, ``warning`` if
-score ≤ ``warning_max``, else ``critical``. Score is the distance past
-the nearer band edge expressed in band-half-widths.
+One structural-integrity rule evaluates per store-day against the
+department-grain ``department_daily_metrics`` frame, when that frame is
+supplied:
+
+* ``department_coverage`` — department row count not equal to
+  ``expected_row_count``, or a ``department_id`` repeated within a
+  store-day
+
+Severity bucketing for the band rules: ``info`` if score ≤ ``info_max``,
+``warning`` if score ≤ ``warning_max``, else ``critical``. Score is the
+distance past the nearer band edge expressed in band-half-widths. The
+structural rule does not produce a graded score; it emits the fixed
+severity declared in its config.
 """
 
 from __future__ import annotations
@@ -107,8 +118,16 @@ def run_all_rules(
     metrics_df: pd.DataFrame,
     dim_stores_df: pd.DataFrame,
     rules_config: dict,
+    *,
+    department_metrics_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Evaluate every enabled rule against ``metrics_df``.
+    """Evaluate every enabled rule and return the combined anomaly flags.
+
+    The statistical-band rules run against ``metrics_df`` (store-day
+    grain). The ``department_coverage`` structural rule runs against
+    ``department_metrics_df`` (store-day-department grain) when that frame
+    is supplied; when it is ``None`` the rule is skipped, leaving the
+    band-rule output unchanged.
 
     Returns a DataFrame whose columns are exactly
     :data:`ANOMALY_FLAG_COLUMNS`, sorted by ``(date, store_id, rule_id)``.
@@ -140,16 +159,20 @@ def run_all_rules(
     avg_ticket_centers = _profile_to_avg_ticket(rules_config)
 
     flags: list[dict] = []
-    for rule_id in RULE_IDS:
+    for rule_id, rule_func in _RULE_FUNCS.items():
         rule_cfg = rules_cfg.get(rule_id, {})
         if not rule_cfg.get("enabled", False):
             continue
         flags.extend(
-            _RULE_FUNCS[rule_id](
+            rule_func(
                 enriched, rule_cfg, severity_cfg,
                 avg_ticket_centers=avg_ticket_centers,
             )
         )
+
+    dept_cfg = rules_cfg.get("department_coverage", {})
+    if dept_cfg.get("enabled", False) and department_metrics_df is not None:
+        flags.extend(_department_coverage(department_metrics_df, dept_cfg))
 
     return _flags_to_frame(flags)
 
@@ -297,6 +320,56 @@ def _yoy_comp(
     return flags
 
 
+def _department_coverage(
+    department_metrics_df: pd.DataFrame, rule_cfg: dict,
+) -> list[dict]:
+    """Flag store-days whose department-grain shape is irregular.
+
+    Unlike the band rules this evaluates the department-grain frame, one
+    group per ``(date, store_id)``. A store-day fires when its department
+    row count is not ``expected_row_count`` or — when ``detect_duplicates``
+    is set — when a ``department_id`` is repeated within the store-day.
+
+    One flag is emitted per offending store-day. ``actual_value`` carries
+    the observed row count, which keeps the missing-department case (count
+    below expected) and the duplicated-department case (count above
+    expected) distinguishable in the flags output. ``severity_score`` is a
+    fixed ``1.0`` rather than a graded distance: a structural irregularity
+    is binary, not a position on a band.
+    """
+    if department_metrics_df is None or len(department_metrics_df) == 0:
+        return []
+
+    expected = int(rule_cfg.get("expected_row_count", 10))
+    detect_duplicates = bool(rule_cfg.get("detect_duplicates", True))
+    severity_level = str(rule_cfg.get("severity_level", "warning"))
+
+    flags: list[dict] = []
+    for (d, store_id), group in department_metrics_df.groupby(
+        ["date", "store_id"], sort=True,
+    ):
+        row_count = len(group)
+        has_duplicate = bool(group["department_id"].duplicated().any())
+        count_off = row_count != expected
+        if not count_off and not (detect_duplicates and has_duplicate):
+            continue
+        flags.append({
+            "date": d,
+            "store_id": int(store_id),
+            "rule_id": "department_coverage",
+            "actual_value": float(row_count),
+            "expected_low": float(expected),
+            "expected_high": float(expected),
+            "distance_from_band": float(abs(row_count - expected)),
+            "severity_score": 1.0,
+            "severity_level": severity_level,
+        })
+    return flags
+
+
+# The dispatch table covers the statistical-band rules only; the
+# structural ``department_coverage`` rule has a different input frame and
+# is invoked directly by :func:`run_all_rules`.
 _RULE_FUNCS: dict[str, Callable[..., list[dict]]] = {
     "revenue_band":     _revenue_band,
     "labor_pct_band":   _labor_pct_band,
