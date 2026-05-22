@@ -40,6 +40,18 @@ rules:
     ratio_upper: 1.25
     # silently skipped when no T-365 row present in metrics frame
 
+  # Structural-integrity rule. Unlike the bands above it does not check a
+  # value against an expected range; it checks the shape of the
+  # department-grain metrics frame. A store-day fires when its department
+  # row count is not expected_row_count, or when a department_id is
+  # repeated within the store-day. Skipped entirely when no department
+  # metrics frame is supplied to the detection run.
+  department_coverage:
+    enabled: true
+    expected_row_count: 10
+    detect_duplicates: true
+    severity_level: warning
+
 severity:
   # severity_score = distance_from_band / band_half_width
   info_max: 1.0

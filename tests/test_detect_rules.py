@@ -86,6 +86,7 @@ def test_load_rules_config_unknown_profile_raises(tmp_path):
         "  avg_ticket_band: { enabled: false }\n"
         "  transactions_band: { enabled: false }\n"
         "  yoy_comp: { enabled: false }\n"
+        "  department_coverage: { enabled: false }\n"
         "severity: { info_max: 1.0, warning_max: 2.0 }\n",
         encoding="utf-8",
     )
