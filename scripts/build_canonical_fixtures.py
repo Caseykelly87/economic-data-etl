@@ -137,6 +137,7 @@ def run(sim_output_root: Path, output_dir: Path, rules_path: Path) -> None:
         [
             sys.executable, "-m", "src.detect_cli",
             "--metrics-path", str(metrics_path),
+            "--department-metrics-path", str(department_metrics_path),
             "--sim-output-root", str(sim_output_root),
             "--rules-path", str(rules_path),
             "--output-dir", str(output_dir),
