@@ -5,9 +5,9 @@
 A Python ETL repository containing two pipelines that share infrastructure but address different data domains:
 
 - **Macro pipeline** — ingests 14 U.S. macroeconomic indicators from the FRED, BLS, and USDA ERS public data sources, normalizes them into a tidy long-format schema, and upserts them into a SQL database.
-- **Grocery pipeline** — ingests CSV output from the upstream `knot-shore-grocery-simulation-engine`, validates schemas, applies static-band detection rules, and produces canonical parquet artifacts that downstream API and portal repositories consume.
+- **Grocery pipeline** — ingests CSV output from the upstream `knot-shore-grocery-simulation-engine`, validates schemas, applies detection rules, and produces canonical parquet artifacts that downstream API and portal repositories consume.
 
-Both pipelines share configuration, structured logging, and CI. The repository contains 243 tests covering both, with no live API calls or database connections in the test suite.
+Both pipelines share configuration, structured logging, and CI. The repository contains 262 tests covering both, with no live API calls or database connections in the test suite.
 
 ## Table of contents
 
@@ -98,7 +98,7 @@ python -m src.detect_cli \
 ### Run all tests
 
 ```bash
-python -m pytest -q                            # 243 tests, no live api or db calls
+python -m pytest -q                            # 262 tests, no live api or db calls
 python -m pytest --cov=src                     # with coverage
 python -m pytest tests/test_detect_rules.py    # single file
 ```
@@ -186,11 +186,12 @@ Outputs three parquet files at `data/processed/`. Re-running with the same input
 
 ### Exception detection
 
-A library of static-band detection rules in `src/detect_rules.py`, with thresholds declared in `config/detection_rules.yaml`. The CLI `src/detect_cli.py` applies the rules to the canonical store-day parquet and writes `data/processed/anomaly_flags.parquet`.
+A library of detection rules in `src/detect_rules.py`, with thresholds declared in `config/detection_rules.yaml`. The CLI `src/detect_cli.py` applies the rules to the canonical metrics parquets and writes `data/processed/anomaly_flags.parquet`.
 
 ```bash
 python -m src.detect_cli \
   --metrics-path data/processed/store_daily_metrics.parquet \
+  --department-metrics-path data/processed/department_daily_metrics.parquet \
   --sim-output-root /path/to/sim/engine/output \
   --rules-path config/detection_rules.yaml \
   --output-dir data/processed
@@ -198,7 +199,9 @@ python -m src.detect_cli \
 
 Output: `data/processed/anomaly_flags.parquet` with one row per fired rule, sorted deterministically by `(date, store_id, rule_id)`. Schema is exactly `(date, store_id, rule_id, actual_value, expected_low, expected_high, distance_from_band, severity_score, severity_level)`.
 
-#### The five rules
+#### The six rules
+
+Five statistical-band rules check whether a store-day value sits inside an expected band:
 
 | rule_id | Checks | Band |
 |---|---|---|
@@ -210,13 +213,15 @@ Output: `data/processed/anomaly_flags.parquet` with one row per fired rule, sort
 
 Per-profile centers (from the live sim engine seed): `suburban-family` → labor 0.105, ticket $38.00; `urban-dense` → labor 0.115, ticket $28.00; `value-market` → labor 0.120, ticket $32.00.
 
+The sixth rule, `department_coverage`, is a structural-integrity rule rather than a band. It evaluates the department-grain metrics one group per `(date, store_id)` and flags any store-day whose department row count is not 10, or that carries a duplicated `department_id`.
+
 #### Severity
 
 `severity_score = distance_from_band / band_half_width`. Values are bucketed into `info` (score ≤ 1), `warning` (1 < score ≤ 2), and `critical` (> 2). Closed-day rows (`total_sales == 0`) are skipped by `labor_pct_band`, `avg_ticket_band`, and `transactions_band`. `yoy_comp` is silently skipped when no T-365 row is present.
 
 #### Grain
 
-Detection operates at store-day grain only. Row-level integrity breaches injected at department-grain by the sim engine (sub-percent effect on store totals) are inherently invisible at this grain — they're caught by schema validation in `sim_ingest.py` before transformation, not by the rules engine.
+Detection runs at two grains. The five statistical-band rules evaluate `store_daily_metrics` at store-day grain. The `department_coverage` structural-integrity rule evaluates `department_daily_metrics` at department-grain, one group per `(date, store_id)`. Department-grain integrity breaches — a store-day missing a department's row, or carrying a duplicated `department_id` — are detected by `department_coverage` and flagged in `anomaly_flags.parquet`.
 
 There is no day-of-week or seasonal adjustment in the current rules. Bands are deliberately wide to tolerate weekend and holiday variance without false-positive flooding. A future seasonal-baseline phase could produce empirical per-store-date expected values that a rule refactor would consume in place of static bands.
 
@@ -244,7 +249,7 @@ Four canonical parquet artifacts produced by running the sim engine + ETL pipeli
 | `store_daily_metrics.parquet` | 2,944 × 6 | 8 stores × 184 days × 2 years (paired-year canonical) |
 | `department_daily_metrics.parquet` | 29,414 × 7 | Same window across 10 departments per store-day |
 | `dim_stores.parquet` | 8 × 10 | One row per store with identification, location, and base_daily_revenue |
-| `anomaly_flags.parquet` | 983 × 9 | 950 info, 33 warning, 0 critical |
+| `anomaly_flags.parquet` | 883 × 9 | 807 info, 76 warning, 0 critical |
 
 **`store_daily_metrics.parquet`** spans two paired six-month windows: 2024-07-01 through 2024-12-31 and 2025-07-01 through 2025-12-31, each covering all 8 stores. The 2025 window is the demo dataset surfaced by the dashboard; the 2024 window enables year-over-year comparison views consumed by the portal's store drilldown via the API's existing `start_date` / `end_date` query parameters. Filtering this parquet to the 2025 window yields 1,472 rows. Columns: `date`, `store_id`, `total_sales`, `transaction_count`, `avg_basket_size`, `labor_cost_pct`.
 
@@ -252,7 +257,7 @@ Four canonical parquet artifacts produced by running the sim engine + ETL pipeli
 
 **`dim_stores.parquet`** is the canonical store reference dataset: 8 rows in `store_id` order. Columns: `store_id`, `store_name`, `address`, `city`, `zip`, `county_fips`, `trade_area_profile`, `sqft`, `open_date`, `base_daily_revenue`. Only `store_id` is type-coerced (to `int64`); other columns pass through as pandas reads them — `zip`, `county_fips`, `sqft` are `int64`; `open_date` is a string in `YYYY-MM-DD` form; `base_daily_revenue` is `float64`.
 
-**`anomaly_flags.parquet`** is the `detect_cli` output produced by running the five static rules against the store-day metrics. Detection runs across both the 2024 and 2025 windows; the `yoy_comp` rule fires only where a prior-year baseline exists.
+**`anomaly_flags.parquet`** is the `detect_cli` output: the five statistical-band rules run against the store-day metrics, and the `department_coverage` structural rule against the department metrics. Detection runs across both the 2024 and 2025 windows; the `yoy_comp` rule fires only where a prior-year baseline exists. Of the 883 rows, 831 are band-rule flags and 52 are structural flags.
 
 These four files are the authoritative downstream input for the `economic-data-api` repo's bundled fixtures. The API copies them byte-identically into `app/fixtures/` so a clone-and-run demo of the API works without re-running this pipeline. Committing them to git makes the canonical state visible in PR diffs and reproducible across clones without requiring downstream consumers to install and run the sim engine.
 
@@ -294,7 +299,7 @@ Ad-hoc parquet output produced by running `sim_cli` or `detect_cli` directly (e.
 │   │   └── canonical/          # Committed canonical parquet artifacts
 │   └── raw/                    # Immutable raw JSON snapshots from FRED/BLS/ERS
 ├── config/
-│   └── detection_rules.yaml    # Threshold declarations for the 5 detection rules
+│   └── detection_rules.yaml    # Threshold declarations for the 6 detection rules
 ├── scripts/
 │   ├── build_canonical_fixtures.py    # Regenerate canonical parquets end-to-end
 │   ├── evaluate_detection.py          # Measure detection recall/fpr against ground truth
@@ -316,21 +321,23 @@ Ad-hoc parquet output produced by running `sim_cli` or `detect_cli` directly (e.
 │   └── detect_cli.py           # Grocery-side cli: canonical -> anomaly flags
 ├── tests/
 │   ├── conftest.py
-│   ├── test_extract.py                  # 30 tests — macro extract + idempotency
-│   ├── test_transform.py                # 45 tests — macro transform + edge cases
-│   ├── test_load.py                     # 16 tests — schema, upsert, idempotency
-│   ├── test_main.py                     # 15 tests — macro pipeline orchestration
-│   ├── test_observability.py            # 3 tests — shared logging configurator
-│   ├── test_sim_ingest.py               # 16 tests — store-grain csv adapter
-│   ├── test_sim_ingest_department.py    # 12 tests — department-grain csv adapter
-│   ├── test_sim_transform.py            # 20 tests — store-grain transforms
-│   ├── test_sim_transform_department.py # 12 tests — department-grain transforms
-│   ├── test_sim_cli.py                  # 11 tests — grocery cli orchestration
-│   ├── test_sim_integration.py          # 8 tests — end-to-end ingest happy path
-│   ├── test_detect_rules.py             # 32 tests — rule logic + edge cases
-│   ├── test_detect_cli.py               # 9 tests — detect cli orchestration
-│   ├── test_detect_integration.py       # 7 tests — end-to-end detection
-│   └── test_build_canonical_fixtures.py # 7 tests — canonical regeneration script
+│   ├── test_extract.py                    # 30 tests — macro extract + idempotency
+│   ├── test_transform.py                  # 45 tests — macro transform + edge cases
+│   ├── test_load.py                       # 16 tests — schema, upsert, idempotency
+│   ├── test_main.py                       # 15 tests — macro pipeline orchestration
+│   ├── test_observability.py              # 3 tests — shared logging configurator
+│   ├── test_sim_ingest.py                 # 16 tests — store-grain csv adapter
+│   ├── test_sim_ingest_department.py      # 12 tests — department-grain csv adapter
+│   ├── test_sim_transform.py              # 20 tests — store-grain transforms
+│   ├── test_sim_transform_department.py   # 12 tests — department-grain transforms
+│   ├── test_sim_cli.py                    # 11 tests — grocery cli orchestration
+│   ├── test_sim_integration.py            # 8 tests — end-to-end ingest happy path
+│   ├── test_sim_engine_contract.py        # 3 tests — sim engine output contract
+│   ├── test_detect_rules.py               # 41 tests — rule logic + edge cases
+│   ├── test_detect_cli.py                 # 12 tests — detect cli orchestration
+│   ├── test_detect_integration.py         # 7 tests — end-to-end detection
+│   ├── test_detect_structural_contract.py # 4 tests — structural-integrity rule contract
+│   └── test_build_canonical_fixtures.py   # 7 tests — canonical regeneration script
 ├── .env                        # API keys — never commit
 ├── .gitignore
 ├── pytest.ini
@@ -418,7 +425,7 @@ On Windows, stdout defaults to cp1252 encoding which can't render some non-ASCII
 ## Testing
 
 ```bash
-python -m pytest -q                              # all 243 tests
+python -m pytest -q                              # all 262 tests
 python -m pytest -v                              # verbose
 python -m pytest --cov=src                       # with coverage
 python -m pytest tests/test_detect_rules.py      # single file
