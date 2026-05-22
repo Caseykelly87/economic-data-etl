@@ -190,7 +190,7 @@ def main():
     print(f"\n{len(records)} rows written to {_OUTPUT_DATA}")
     print(f"Metadata written to {_OUTPUT_META}")
     print("\nCommit both files to the repo.")
-    print(f"Re-run only when the Atlas is updated (see 'data_page' in the meta file).")
+    print("Re-run only when the Atlas is updated (see 'data_page' in the meta file).")
 
 
 if __name__ == "__main__":
