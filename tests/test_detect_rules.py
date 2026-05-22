@@ -55,6 +55,33 @@ def _single_store_dim(store_id: int, base: float, profile: str) -> pd.DataFrame:
     })
 
 
+def _dept_row(d: date, store_id: int, dept_id: int) -> dict:
+    """One department_daily_metrics row. Values past the first three
+    columns are filler — the structural rule reads only date, store_id,
+    and department_id."""
+    return {
+        "date": d,
+        "store_id": store_id,
+        "department_id": dept_id,
+        "net_sales": 1000.0,
+        "transactions": 50,
+        "units_sold": 120,
+        "gross_margin_pct": 0.30,
+    }
+
+
+def _dept_df(rows: list[dict]) -> pd.DataFrame:
+    df = pd.DataFrame(rows)
+    df["store_id"] = df["store_id"].astype(np.int64)
+    df["department_id"] = df["department_id"].astype(np.int64)
+    return df
+
+
+def _ten_departments(d: date, store_id: int) -> list[dict]:
+    """A well-formed store-day: ten distinct department rows."""
+    return [_dept_row(d, store_id, dept_id) for dept_id in range(1, 11)]
+
+
 # ==============================================================================
 # load_rules_config
 # ==============================================================================
@@ -425,6 +452,163 @@ def test_yoy_comp_above_threshold_fires(
     )
     flags = result[result["rule_id"] == "yoy_comp"]
     assert len(flags) == 1
+
+
+# ==============================================================================
+# department_coverage
+# ==============================================================================
+
+
+def test_department_coverage_ten_distinct_departments_no_flag(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """A store-day with ten distinct departments is well-formed."""
+    dept = _dept_df(_ten_departments(date(2024, 6, 15), 1))
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=dept,
+    )
+    assert (result["rule_id"] == "department_coverage").sum() == 0
+
+
+def test_department_coverage_missing_department_fires_warning(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """Nine rows — department 10 absent — fires one warning flag."""
+    rows = [_dept_row(date(2024, 6, 15), 1, dept_id) for dept_id in range(1, 10)]
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    flags = result[result["rule_id"] == "department_coverage"]
+    assert len(flags) == 1
+    flag = flags.iloc[0]
+    assert flag["store_id"] == 1
+    assert flag["actual_value"] == 9.0
+    assert flag["expected_low"] == 10.0
+    assert flag["expected_high"] == 10.0
+    assert flag["distance_from_band"] == 1.0
+    assert flag["severity_level"] == "warning"
+
+
+def test_department_coverage_duplicate_department_fires_warning(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """Eleven rows — department 3 repeated — fires one warning flag."""
+    rows = _ten_departments(date(2024, 6, 15), 1)
+    rows.append(_dept_row(date(2024, 6, 15), 1, 3))
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    flags = result[result["rule_id"] == "department_coverage"]
+    assert len(flags) == 1
+    flag = flags.iloc[0]
+    assert flag["actual_value"] == 11.0
+    assert flag["distance_from_band"] == 1.0
+    assert flag["severity_level"] == "warning"
+
+
+def test_department_coverage_duplicate_with_expected_count_still_fires(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """Ten rows, but department 7 is missing and department 3 is doubled:
+    the count matches expected while the shape is still wrong, so the
+    duplicate condition alone fires the flag."""
+    rows = [
+        _dept_row(date(2024, 6, 15), 1, d)
+        for d in (1, 2, 3, 3, 4, 5, 6, 8, 9, 10)
+    ]
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    flags = result[result["rule_id"] == "department_coverage"]
+    assert len(flags) == 1
+    assert flags.iloc[0]["actual_value"] == 10.0
+    assert flags.iloc[0]["distance_from_band"] == 0.0
+
+
+def test_department_coverage_detect_duplicates_disabled_ignores_duplicate(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """With detect_duplicates off, a duplicate at the expected count does
+    not fire."""
+    cfg = detection_rules_config.copy()
+    cfg["rules"] = {k: v.copy() for k, v in cfg["rules"].items()}
+    cfg["rules"]["department_coverage"]["detect_duplicates"] = False
+    rows = [
+        _dept_row(date(2024, 6, 15), 1, d)
+        for d in (1, 2, 3, 3, 4, 5, 6, 8, 9, 10)
+    ]
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, cfg,
+        department_metrics_df=_dept_df(rows),
+    )
+    assert (result["rule_id"] == "department_coverage").sum() == 0
+
+
+def test_department_coverage_skipped_without_department_frame(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """With no department frame supplied the structural rule contributes
+    nothing to the flags output."""
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+    )
+    assert (result["rule_id"] == "department_coverage").sum() == 0
+
+
+def test_department_coverage_disabled_produces_no_flags(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """A rule with enabled: false must never emit a flag even when the
+    department frame contains a clear irregularity."""
+    cfg = detection_rules_config.copy()
+    cfg["rules"] = {k: v.copy() for k, v in cfg["rules"].items()}
+    cfg["rules"]["department_coverage"]["enabled"] = False
+    rows = [_dept_row(date(2024, 6, 15), 1, dept_id) for dept_id in range(1, 10)]
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, cfg,
+        department_metrics_df=_dept_df(rows),
+    )
+    assert (result["rule_id"] == "department_coverage").sum() == 0
+
+
+def test_department_coverage_flags_only_offending_store_days(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """Across four store-days only the two irregular ones fire."""
+    d1, d2 = date(2024, 6, 15), date(2024, 6, 16)
+    rows: list[dict] = []
+    rows += _ten_departments(d1, 1)                              # clean
+    rows += [_dept_row(d1, 2, dept) for dept in range(1, 10)]    # 9 — missing
+    rows += _ten_departments(d2, 1)
+    rows.append(_dept_row(d2, 1, 5))                             # 11 — duplicate
+    rows += _ten_departments(d2, 2)                              # clean
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    flags = result[result["rule_id"] == "department_coverage"]
+    fired = set(zip(flags["date"], flags["store_id"].astype(int)))
+    assert fired == {(d1, 2), (d2, 1)}
+
+
+def test_department_coverage_output_matches_anomaly_flag_schema(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """Structural flags carry the same schema and vocabulary as band flags."""
+    rows = [_dept_row(date(2024, 6, 15), 1, dept_id) for dept_id in range(1, 10)]
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    assert tuple(result.columns) == ANOMALY_FLAG_COLUMNS
+    flags = result[result["rule_id"] == "department_coverage"]
+    assert set(flags["rule_id"]).issubset(set(RULE_IDS))
+    assert set(flags["severity_level"]).issubset(set(SEVERITY_LEVELS))
+    assert (flags["severity_score"] == 1.0).all()
 
 
 # ==============================================================================
