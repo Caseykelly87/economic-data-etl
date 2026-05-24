@@ -8,14 +8,16 @@ output on repeat runs.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 import hashlib
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
-from src import detect_cli, sim_cli
-from src.schemas import ANOMALY_FLAG_COLUMNS
+from src import detect_cli, detect_rules, sim_cli
+from src.schemas import ANOMALY_FLAG_COLUMNS, RULE_IDS
 
 
 def _sha256(path: Path) -> str:
@@ -128,3 +130,85 @@ def test_flags_parquet_sorted_by_date_store_rule(
     df = pd.read_parquet(flags_path)
     triples = list(zip(df["date"], df["store_id"], df["rule_id"]))
     assert triples == sorted(triples)
+
+
+# ==============================================================================
+# Rolling z-score rule — full orchestrator over a 60-day synthetic frame
+# ==============================================================================
+
+
+def _multi_store_alternating_frame(
+    store_specs: list[tuple[int, float, float, float]],
+    start: date = date(2024, 1, 1),
+) -> pd.DataFrame:
+    """Build a 60-day-per-store synthetic store_daily_metrics frame.
+
+    Each ``(store_id, center, half, target_z)`` produces a series that
+    alternates ``center ± half`` so the rolling-window stats are
+    stable, and whose final day sits at ``target_z`` stddevs from the
+    prior 28-day rolling mean (with the same 1e-9 * std nudge the unit
+    helper uses to keep the FP round-trip from undershooting).
+    """
+    rows: list[dict] = []
+    for store_id, center, half, target_z in store_specs:
+        pattern = [
+            center - half if i % 2 == 0 else center + half
+            for i in range(60)
+        ]
+        window = pattern[31:59]
+        mean = float(np.mean(window))
+        std = float(np.std(window, ddof=1))
+        nudge = (1.0 if target_z >= 0 else -1.0) * 1e-9
+        pattern[59] = mean + (target_z + nudge) * std
+        for i, v in enumerate(pattern):
+            rows.append({
+                "date": start + timedelta(days=i),
+                "store_id": store_id,
+                "total_sales": v,
+                "transaction_count": 50,
+                "avg_basket_size": v / 50.0 if v else 0.0,
+                "labor_cost_pct": 0.105,
+            })
+    df = pd.DataFrame(rows)
+    df["store_id"] = df["store_id"].astype(np.int64)
+    df["transaction_count"] = df["transaction_count"].astype(np.int64)
+    return df
+
+
+def test_zscore_rule_fires_alongside_other_rules_via_run_all_rules(rules_path):
+    """The orchestrator threads `revenue_zscore_28d` through alongside
+    the static-band rules: with the canonical YAML config enabled, a
+    multi-store 60-day frame whose final day is anomalous fires the
+    z-score rule for each store, and the band rules may also fire on
+    the same dates without interfering with the z-score output.
+
+    Business-correctness: per-store flag count for the z-score rule
+    equals the number of stores with constructed anomalous final
+    days; each flag's `expected_low` matches that store's
+    independently-derived rolling mean.
+    """
+    specs = [
+        (1, 1000.0, 100.0, 3.5),   # warning
+        (2, 5000.0, 500.0, 4.5),   # critical
+        (3, 800.0, 80.0, -2.7),    # info, below mean
+    ]
+    metrics = _multi_store_alternating_frame(specs)
+    dim_stores = pd.DataFrame({
+        "store_id": pd.Series([1, 2, 3], dtype=np.int64),
+        "base_daily_revenue": [1000.0, 5000.0, 800.0],
+        "trade_area_profile": ["suburban-family"] * 3,
+    })
+    config = detect_rules.load_rules_config(rules_path)
+
+    flags = detect_rules.run_all_rules(metrics, dim_stores, config)
+
+    z_flags = flags[flags["rule_id"] == "revenue_zscore_28d"]
+    assert len(z_flags) == 3
+    assert set(z_flags["store_id"].astype(int)) == {1, 2, 3}
+    assert set(z_flags["severity_level"]) == {"warning", "critical", "info"}
+    assert set(flags["rule_id"]).issubset(set(RULE_IDS))
+
+    for store_id, center, _, _ in specs:
+        store_flag = z_flags[z_flags["store_id"] == store_id].iloc[0]
+        assert store_flag["expected_low"] == pytest.approx(center)
+        assert store_flag["expected_high"] == pytest.approx(center)

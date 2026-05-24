@@ -9,10 +9,11 @@ exit code 1.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 import hashlib
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -297,6 +298,68 @@ def test_cli_skips_structural_rule_without_department_metrics(tmp_path, rules_pa
     assert exit_code == 0
     df = pd.read_parquet(out / detect_cli.OUTPUT_FILENAME)
     assert (df["rule_id"] == "department_coverage").sum() == 0
+
+
+def _write_zscore_metrics(
+    tmp_path: Path, store_id: int = 1,
+) -> tuple[Path, Path]:
+    """Write a synthetic 60-day metrics parquet and matching dim_stores
+    parquet whose final day sits at ~3.5 stddevs above a stable
+    alternating-value rolling baseline. Returns the two paths."""
+    center, half, target_z = 1000.0, 100.0, 3.5
+    pattern = [center - half if i % 2 == 0 else center + half for i in range(60)]
+    window = pattern[31:59]
+    mean = float(np.mean(window))
+    std = float(np.std(window, ddof=1))
+    pattern[59] = mean + (target_z + 1e-9) * std
+    start = date(2024, 1, 1)
+    metrics = pd.DataFrame([
+        {
+            "date": start + timedelta(days=i),
+            "store_id": store_id,
+            "total_sales": v,
+            "transaction_count": 50,
+            "avg_basket_size": v / 50.0,
+            "labor_cost_pct": 0.105,
+        }
+        for i, v in enumerate(pattern)
+    ])
+    metrics["store_id"] = metrics["store_id"].astype(np.int64)
+    metrics["transaction_count"] = metrics["transaction_count"].astype(np.int64)
+    dim_stores = pd.DataFrame({
+        "store_id": pd.Series([store_id], dtype=np.int64),
+        "base_daily_revenue": [center],
+        "trade_area_profile": ["suburban-family"],
+    })
+    metrics_path = tmp_path / "store_daily_metrics.parquet"
+    dim_path = tmp_path / "dim_stores.parquet"
+    metrics.to_parquet(metrics_path, index=False)
+    dim_stores.to_parquet(dim_path, index=False)
+    return metrics_path, dim_path
+
+
+def test_cli_writes_zscore_flag_for_synthetic_anomaly(tmp_path, rules_path):
+    """A 60-day metrics parquet whose last day sits ~3.5 stddevs above
+    the rolling baseline produces a `revenue_zscore_28d` flag in the
+    written anomaly_flags.parquet — covers the path from CLI args
+    through detect_rules through the parquet writer for the new rule.
+    """
+    metrics_path, dim_path = _write_zscore_metrics(tmp_path)
+    out = tmp_path / "flags"
+    exit_code = detect_cli.main([
+        "--metrics-path", str(metrics_path),
+        "--dim-stores-path", str(dim_path),
+        "--rules-path", str(rules_path),
+        "--output-dir", str(out),
+    ])
+    assert exit_code == 0
+    df = pd.read_parquet(out / detect_cli.OUTPUT_FILENAME)
+    z_flags = df[df["rule_id"] == "revenue_zscore_28d"]
+    assert len(z_flags) == 1
+    flag = z_flags.iloc[0]
+    assert flag["severity_level"] == "warning"
+    assert flag["expected_low"] == pytest.approx(1000.0)
+    assert flag["expected_high"] == pytest.approx(1000.0)
 
 
 def test_cli_exits_nonzero_on_department_metrics_missing_column(tmp_path, rules_path):
