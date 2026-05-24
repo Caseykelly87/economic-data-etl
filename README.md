@@ -4,7 +4,7 @@
 
 A Python ETL repository containing two pipelines that share infrastructure but address different data domains:
 
-- **Macro pipeline** — ingests 14 U.S. macroeconomic indicators from the FRED, BLS, and USDA ERS public data sources, normalizes them into a tidy long-format schema, and upserts them into a SQL database.
+- **Macro pipeline** — ingests 15 U.S. macroeconomic indicators from FRED and BLS, plus 8 food-category CPI forecast series from USDA ERS, normalizes them into a tidy long-format schema, and upserts them into a SQL database.
 - **Grocery pipeline** — ingests CSV output from the upstream `knot-shore-grocery-simulation-engine`, validates schemas, applies detection rules, and produces canonical parquet artifacts that downstream API and portal repositories consume.
 
 Both pipelines share configuration, structured logging, and CI. The repository contains 262 tests covering both, with no live API calls or database connections in the test suite.
