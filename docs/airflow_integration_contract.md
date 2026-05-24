@@ -167,9 +167,13 @@ the four functions directly avoids them.
 - `load_rules_config(path: Path) -> dict` — loads and structurally
   validates `config/detection_rules.yaml`. Raises `DetectionConfigError`
   on missing sections, missing rules, or unknown profile keys.
-- `run_all_rules(metrics_df: pd.DataFrame, dim_stores_df: pd.DataFrame, rules_config: dict) -> pd.DataFrame` —
-  evaluates every enabled rule and returns the `anomaly_flags` frame
-  with columns matching `ANOMALY_FLAG_COLUMNS`.
+- `run_all_rules(metrics_df: pd.DataFrame, dim_stores_df: pd.DataFrame, rules_config: dict, *, department_metrics_df: pd.DataFrame | None = None) -> pd.DataFrame` —
+  evaluates every enabled statistical-band rule against `metrics_df`,
+  and additionally evaluates the `department_coverage` structural rule
+  against `department_metrics_df` when that frame is supplied. Returns
+  the `anomaly_flags` frame with columns matching `ANOMALY_FLAG_COLUMNS`.
+  When `department_metrics_df` is `None` the structural rule is silently
+  skipped.
 
 **Import-time side effects:** none. Module-scope `_RULE_FUNCS` dict is
 populated after function defs but does not run side-effecting code.
@@ -187,12 +191,20 @@ populated after function defs but does not run side-effecting code.
 
 **Public entry points**
 
-- `run(metrics_path: Path, sim_output_root: Path, rules_path: Path, output_dir: Path) -> Path` —
-  loads the rules config, loads `dim_stores` from the sim-output tree,
-  reads the metrics parquet, validates required columns, evaluates
-  rules, writes `anomaly_flags.parquet`. Returns the output path.
+- `run(metrics_path: Path, rules_path: Path, output_dir: Path, *, sim_output_root: Path | None = None, dim_stores_path: Path | None = None, department_metrics_path: Path | None = None) -> Path` —
+  loads the rules config, loads `dim_stores` from either a sim engine
+  output tree (`sim_output_root`) or a committed `dim_stores.parquet`
+  (`dim_stores_path`) — exactly one of the two must be supplied — reads
+  the metrics parquet, validates required columns, evaluates rules,
+  writes `anomaly_flags.parquet`. When `department_metrics_path` is
+  supplied the department-grain parquet is read and the
+  `department_coverage` structural rule is evaluated; when it is `None`
+  the structural rule is skipped. Returns the output path.
 - `main(argv: list[str] | None = None) -> int` — argparse wrapper
-  around `run`. Returns the process exit code.
+  around `run`. The `--sim-output-root` and `--dim-stores-path` flags
+  are wired as a mutually exclusive, required group; the
+  `--department-metrics-path` flag is optional. Returns the process exit
+  code.
 
 **Import-time side effects:** none observable. Same shape as
 `sim_cli.py`: filename constant + structlog logger at module scope;
@@ -200,10 +212,12 @@ populated after function defs but does not run side-effecting code.
 
 **Data contract**
 
-- Reads: `store_daily_metrics.parquet` (from `metrics_path`),
-  `dimensions/dim_stores.csv` (under `sim_output_root`),
-  `detection_rules.yaml` (from `rules_path`, defaulting to
-  `config/detection_rules.yaml`).
+- Reads: `store_daily_metrics.parquet` (from `metrics_path`);
+  `detection_rules.yaml` (from `rules_path`, defaulting on the CLI to
+  `config/detection_rules.yaml`); either `dimensions/dim_stores.csv`
+  under `sim_output_root` or a committed `dim_stores.parquet` at
+  `dim_stores_path`; `department_daily_metrics.parquet` (from
+  `department_metrics_path`) when supplied.
 - Returns: the path of the written parquet file.
 - Writes: `anomaly_flags.parquet` to `output_dir`.
 
@@ -212,7 +226,9 @@ public `run()` function is the obvious entry point. As with `sim_cli`,
 calling `main()` from an Airflow task would trigger logging
 configuration and an environment-variable mutation, both undesirable
 inside a managed worker process; orchestration tasks should call `run`
-directly.
+directly. The `dim_stores` input can come from either `sim_output_root`
+or `dim_stores_path`, which lets detection re-run against the committed
+canonical parquets without the upstream sim engine output on hand.
 
 ## Sim engine boundary
 
@@ -252,7 +268,7 @@ under `src/`.
 | `sim_ingest` → `sim_transform` input          | In-memory `Iterable[StoreSummaryRecord]` / `Iterable[DepartmentSalesRecord]` + `dim_stores` DataFrame |
 | `sim_transform` output                        | In-memory `pd.DataFrame` matching `STORE_DAILY_METRICS_COLUMNS` / `DEPARTMENT_DAILY_METRICS_COLUMNS`  |
 | `sim_cli` writes (canonical artifacts)        | `store_daily_metrics.parquet`, `department_daily_metrics.parquet`, `dim_stores.parquet` (pyarrow)    |
-| `detect_cli` reads                            | `store_daily_metrics.parquet` (from `--metrics-path`), `output/dimensions/dim_stores.csv` (from `--sim-output-root`), `config/detection_rules.yaml` (from `--rules-path`) |
+| `detect_cli` reads                            | `store_daily_metrics.parquet` (from `--metrics-path`); `output/dimensions/dim_stores.csv` (from `--sim-output-root`) or `dim_stores.parquet` (from `--dim-stores-path`); `config/detection_rules.yaml` (from `--rules-path`); `department_daily_metrics.parquet` (from `--department-metrics-path`, optional) |
 | `detect_cli` writes                           | `anomaly_flags.parquet` (pyarrow)                                                                    |
 
 The four committed parquet files at `data/processed/canonical/` are the
@@ -279,11 +295,12 @@ need the user's judgment to settle before the DAG extension is drafted.
    window (e.g., one Airflow run = one date), or does it run the full
    tree the sim engine produces and let the parquets accumulate? The
    CLIs accept a directory, not a date.
-2. `detect_cli.run` reads `dim_stores` from the sim-output tree, not
-   from `dim_stores.parquet` written by `sim_cli`. If the orchestration
-   repo wants the detection task to depend only on the parquets `sim_cli`
-   produced (so the sim-output tree can be cleaned up between tasks),
-   detection's input contract needs to widen.
+2. `detect_cli.run` accepts `dim_stores` from either the sim-output
+   tree (`--sim-output-root`) or a committed `dim_stores.parquet`
+   (`--dim-stores-path`). The orchestration repo can therefore wire the
+   detection task to depend only on the parquets `sim_cli` produced and
+   clean up the sim-output tree between tasks; the open question is
+   which of the two the DAG should prefer in practice.
 3. Should the orchestration repo run the simulation engine itself
    (e.g., a `BashOperator` or `KubernetesPodOperator` invoking the sim
    engine container) before kicking off `sim_cli`? This determines
