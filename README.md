@@ -109,7 +109,7 @@ Three-stage flow: extract → transform → load. Implemented in `src/main.py`, 
 
 ### Extract
 
-Fetches each FRED series individually (9 calls) and all BLS series in a single batch request (1 call). USDA ERS data is fetched as a CSV summary file. Each response is SHA-256 hashed; files are only written when the response content has changed, so re-running is fully idempotent. State per series (last observation date, response hash) is tracked under `data/metadata/`.
+Fetches each FRED series individually (10 calls) and all BLS series in a single batch request (1 call). USDA ERS data is fetched as a CSV summary file. Each response is SHA-256 hashed; files are only written when the response content has changed, so re-running is fully idempotent. State per series (last observation date, response hash) is tracked under `data/metadata/`.
 
 Resilient networking: exponential backoff on transient HTTP errors, 3 retry attempts.
 
@@ -123,7 +123,7 @@ Upserts fact and dimension rows via SQLAlchemy. Each row is classified as insert
 
 ### Series catalog
 
-#### FRED series (9 indicators)
+#### FRED series (10 indicators)
 
 | Key | Series ID | Description |
 |---|---|---|
@@ -136,6 +136,7 @@ Upserts fact and dimension rows via SQLAlchemy. Each row is classified as insert
 | `UNRATE` | `UNRATE` | Unemployment Rate |
 | `SAVINGS_RATE` | `PSAVERT` | Personal Saving Rate |
 | `MONEY_COST` | `FEDFUNDS` | Federal Funds Effective Rate |
+| `GROCERY_SALES_MO` | `MSRSMO445` | Missouri Food & Beverage Stores retail sales, YoY % change (NAICS 445) |
 
 #### BLS series (5 indicators, batch request)
 
