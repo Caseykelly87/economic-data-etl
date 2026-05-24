@@ -148,11 +148,24 @@ Upserts fact and dimension rows via SQLAlchemy. Each row is classified as insert
 | `AVG_WAGES` | `CES0500000003` | Average Hourly Earnings, All Employees |
 | `WAGE_INDEX` | `CIU2020000000000I` | Employment Cost Index |
 
-#### USDA ERS
+#### USDA ERS food-price categories (8 series)
 
-`ERS_SUMMARY_URL` in `src/config.py` points at the USDA Economic Research Service food expenditure summary CSV. Loaded as a single batch with custom parsing in `src/extract.py`.
+The USDA Economic Research Service publishes a monthly Food Price Outlook CSV with year-over-year CPI forecasts across eight food categories. `ERS_CATEGORY_MAP` in `src/config.py` maps the CSV's category strings to the internal `series_id` values stored in `dim_series` and `fact_economic_observations`:
 
-To add or remove series, edit `FRED_SERIES`, `BLS_SERIES`, or `ERS_SUMMARY_URL` in `src/config.py`. No other files need to change.
+| Series ID | Source category (CSV) | Description |
+|---|---|---|
+| `ERS_ALL_FOOD` | `All food` | Combined at-home and away-from-home |
+| `ERS_FOOD_HOME` | `Food at home` | Groceries for at-home consumption |
+| `ERS_FOOD_AWAY` | `Food away from home` | Restaurants and prepared meals |
+| `ERS_CEREALS` | `Cereals and bakery products` | Cereals and bakery products |
+| `ERS_MEATS` | `Meats, poultry, and fish` | Meats, poultry, and fish |
+| `ERS_DAIRY` | `Dairy products` | Dairy products |
+| `ERS_FRUITS_VEG` | `Fruits and vegetables` | Fresh fruits and vegetables |
+| `ERS_BEVERAGES` | `Nonalcoholic beverages and beverage materials` | Nonalcoholic beverages |
+
+The `ERS_` prefix marks the upstream source; the data is sourced directly from USDA ERS, not BLS. The CSV is loaded as a single batch — `ERS_SUMMARY_URL` in `src/config.py` points at the food-price-outlook landing page, and `src/extract.py` discovers the current monthly CSV URL by scraping that page (ERS rotates the media ID on every publication; a hard-coded fallback URL in `extract.py` covers discovery failures).
+
+To add or remove series, edit `FRED_SERIES`, `BLS_SERIES`, or `ERS_CATEGORY_MAP` in `src/config.py`. No other files need to change.
 
 ## The grocery pipeline
 
