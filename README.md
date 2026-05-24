@@ -4,7 +4,7 @@
 
 A Python ETL repository containing two pipelines that share infrastructure but address different data domains:
 
-- **Macro pipeline** — ingests 14 U.S. macroeconomic indicators from the FRED, BLS, and USDA ERS public data sources, normalizes them into a tidy long-format schema, and upserts them into a SQL database.
+- **Macro pipeline** — ingests 15 U.S. macroeconomic indicators from FRED and BLS, plus 8 food-category CPI forecast series from USDA ERS, normalizes them into a tidy long-format schema, and upserts them into a SQL database.
 - **Grocery pipeline** — ingests CSV output from the upstream `knot-shore-grocery-simulation-engine`, validates schemas, applies detection rules, and produces canonical parquet artifacts that downstream API and portal repositories consume.
 
 Both pipelines share configuration, structured logging, and CI. The repository contains 262 tests covering both, with no live API calls or database connections in the test suite.
@@ -109,7 +109,7 @@ Three-stage flow: extract → transform → load. Implemented in `src/main.py`, 
 
 ### Extract
 
-Fetches each FRED series individually (9 calls) and all BLS series in a single batch request (1 call). USDA ERS data is fetched as a CSV summary file. Each response is SHA-256 hashed; files are only written when the response content has changed, so re-running is fully idempotent. State per series (last observation date, response hash) is tracked under `data/metadata/`.
+Fetches each FRED series individually (10 calls) and all BLS series in a single batch request (1 call). USDA ERS data is fetched as a CSV summary file. Each response is SHA-256 hashed; files are only written when the response content has changed, so re-running is fully idempotent. State per series (last observation date, response hash) is tracked under `data/metadata/`.
 
 Resilient networking: exponential backoff on transient HTTP errors, 3 retry attempts.
 
@@ -123,7 +123,7 @@ Upserts fact and dimension rows via SQLAlchemy. Each row is classified as insert
 
 ### Series catalog
 
-#### FRED series (9 indicators)
+#### FRED series (10 indicators)
 
 | Key | Series ID | Description |
 |---|---|---|
@@ -136,6 +136,7 @@ Upserts fact and dimension rows via SQLAlchemy. Each row is classified as insert
 | `UNRATE` | `UNRATE` | Unemployment Rate |
 | `SAVINGS_RATE` | `PSAVERT` | Personal Saving Rate |
 | `MONEY_COST` | `FEDFUNDS` | Federal Funds Effective Rate |
+| `GROCERY_SALES_MO` | `MSRSMO445` | Missouri Food & Beverage Stores retail sales, YoY % change (NAICS 445) |
 
 #### BLS series (5 indicators, batch request)
 
@@ -147,11 +148,24 @@ Upserts fact and dimension rows via SQLAlchemy. Each row is classified as insert
 | `AVG_WAGES` | `CES0500000003` | Average Hourly Earnings, All Employees |
 | `WAGE_INDEX` | `CIU2020000000000I` | Employment Cost Index |
 
-#### USDA ERS
+#### USDA ERS food-price categories (8 series)
 
-`ERS_SUMMARY_URL` in `src/config.py` points at the USDA Economic Research Service food expenditure summary CSV. Loaded as a single batch with custom parsing in `src/extract.py`.
+The USDA Economic Research Service publishes a monthly Food Price Outlook CSV with year-over-year CPI forecasts across eight food categories. `ERS_CATEGORY_MAP` in `src/config.py` maps the CSV's category strings to the internal `series_id` values stored in `dim_series` and `fact_economic_observations`:
 
-To add or remove series, edit `FRED_SERIES`, `BLS_SERIES`, or `ERS_SUMMARY_URL` in `src/config.py`. No other files need to change.
+| Series ID | Source category (CSV) | Description |
+|---|---|---|
+| `ERS_ALL_FOOD` | `All food` | Combined at-home and away-from-home |
+| `ERS_FOOD_HOME` | `Food at home` | Groceries for at-home consumption |
+| `ERS_FOOD_AWAY` | `Food away from home` | Restaurants and prepared meals |
+| `ERS_CEREALS` | `Cereals and bakery products` | Cereals and bakery products |
+| `ERS_MEATS` | `Meats, poultry, and fish` | Meats, poultry, and fish |
+| `ERS_DAIRY` | `Dairy products` | Dairy products |
+| `ERS_FRUITS_VEG` | `Fruits and vegetables` | Fresh fruits and vegetables |
+| `ERS_BEVERAGES` | `Nonalcoholic beverages and beverage materials` | Nonalcoholic beverages |
+
+The `ERS_` prefix marks the upstream source; the data is sourced directly from USDA ERS, not BLS. The CSV is loaded as a single batch — `ERS_SUMMARY_URL` in `src/config.py` points at the food-price-outlook landing page, and `src/extract.py` discovers the current monthly CSV URL by scraping that page (ERS rotates the media ID on every publication; a hard-coded fallback URL in `extract.py` covers discovery failures).
+
+To add or remove series, edit `FRED_SERIES`, `BLS_SERIES`, or `ERS_CATEGORY_MAP` in `src/config.py`. No other files need to change.
 
 ## The grocery pipeline
 
