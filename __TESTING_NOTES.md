@@ -171,7 +171,12 @@ structural flags plus the 831 unchanged statistical-band flags.
 
 ## Test categories observed
 
-The suite held 243 tests at the start of this pass. Classification:
+Categorization snapshot taken when the suite held 246 tests. The suite
+is now at 262; the 16 added tests since the snapshot have not been
+graded under the business/structural/ceremony split, so the table below
+is a dated point-in-time record rather than a current breakdown. The
+suite at the start of the pass that produced the snapshot held 243
+tests.
 
 | Category             | At start | After pass |
 |----------------------|----------|------------|
@@ -180,7 +185,7 @@ The suite held 243 tests at the start of this pass. Classification:
 | Ceremony             | 4        | 1          |
 | Uncategorizable      | 0        | 0          |
 
-This pass converted seven structural/ceremony tests covering hot-path
+That pass converted seven structural/ceremony tests covering hot-path
 code into business-correctness tests (three macro-transform value
 checks, two grocery-transform checks, the load-idempotency check, the
 canonical-output check) and added three contract tests, bringing the
