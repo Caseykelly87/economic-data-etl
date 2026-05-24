@@ -15,6 +15,13 @@ Five statistical-band rules evaluate at store-day grain against the
 * ``transactions_band`` — transaction_count vs ``base_daily_revenue / avg_ticket_center`` ± ``band_pct``
 * ``yoy_comp`` — current/T-365 sales ratio outside ``[ratio_lower, ratio_upper]``
 
+One rolling-baseline rule evaluates at store-day grain against the
+``store_daily_metrics`` frame, comparing each day's ``total_sales``
+against a learned per-store baseline instead of a configured band:
+
+* ``revenue_zscore_28d`` — z-score of ``total_sales`` against the
+  trailing 28-day rolling mean and stddev for the store
+
 One structural-integrity rule evaluates per store-day against the
 department-grain ``department_daily_metrics`` frame, when that frame is
 supplied:
@@ -26,8 +33,10 @@ supplied:
 Severity bucketing for the band rules: ``info`` if score ≤ ``info_max``,
 ``warning`` if score ≤ ``warning_max``, else ``critical``. Score is the
 distance past the nearer band edge expressed in band-half-widths. The
-structural rule does not produce a graded score; it emits the fixed
-severity declared in its config.
+``revenue_zscore_28d`` rule uses its own bucketing on ``|z|`` itself
+(``info`` 2.5–3, ``warning`` 3–4, ``critical`` ≥ 4). The structural
+rule does not produce a graded score; it emits the fixed severity
+declared in its config.
 """
 
 from __future__ import annotations
@@ -320,6 +329,100 @@ def _yoy_comp(
     return flags
 
 
+def _revenue_zscore_28d(
+    enriched: pd.DataFrame, rule_cfg: dict, severity_cfg: dict,
+    *, avg_ticket_centers: dict[str, float] | None = None,
+) -> list[dict]:
+    """Flag store-days whose ``total_sales`` is far from the store's recent baseline.
+
+    For each store-day, the trailing rolling mean and stddev of
+    ``total_sales`` are computed over the prior ``window_days``
+    observations for that store (the current row is excluded from its
+    own window — the same shape as ``yoy_comp`` comparing against an
+    independent T-365 row). A store-day fires when the resulting
+    ``|z|`` is at least ``zscore_threshold``.
+
+    Semantics of ``min_history_days``: counts prior observations
+    excluding the current row. With ``min_history_days=14`` a store's
+    earliest evaluable day is its 15th observation; rows with fewer
+    than 14 prior observations are silently skipped, the same way
+    ``yoy_comp`` silently skips dates without a T-365 row. Rows whose
+    rolling stddev is zero or NaN are also skipped — z-score is
+    undefined when the recent history is constant.
+
+    Flag fields mirror the band-rule shape for portability:
+    ``expected_low`` and ``expected_high`` both carry the rolling mean
+    (the point-estimate baseline this rule learned), ``actual_value``
+    is the observed ``total_sales``, ``distance_from_band`` is
+    ``|actual - rolling_mean|`` in dollars, and ``severity_score`` is
+    ``|z|`` — a unitless distance in stddev-multiples rather than a
+    distance in band-half-widths.
+    """
+    window = int(rule_cfg.get("window_days", 28))
+    min_periods = int(rule_cfg.get("min_history_days", 14))
+    threshold = float(rule_cfg.get("zscore_threshold", 2.5))
+
+    if len(enriched) == 0:
+        return []
+
+    df = enriched[["date", "store_id", "total_sales"]].sort_values(
+        ["store_id", "date"]
+    ).reset_index(drop=True)
+
+    sales_by_store = df.groupby("store_id", sort=False)["total_sales"]
+    rolling_mean = sales_by_store.transform(
+        lambda s: s.shift(1).rolling(window=window, min_periods=min_periods).mean()
+    )
+    rolling_std = sales_by_store.transform(
+        lambda s: s.shift(1).rolling(window=window, min_periods=min_periods).std(ddof=1)
+    )
+
+    valid = rolling_mean.notna() & rolling_std.notna() & (rolling_std > 0)
+    if not valid.any():
+        return []
+
+    actual = df["total_sales"].astype(float)
+    abs_z = pd.Series(np.nan, index=df.index, dtype="float64")
+    abs_z.loc[valid] = (
+        (actual.loc[valid] - rolling_mean.loc[valid]) / rolling_std.loc[valid]
+    ).abs()
+
+    fire = valid & (abs_z >= threshold)
+    if not fire.any():
+        return []
+
+    fired_idx = df.index[fire]
+    fired_mean = rolling_mean.loc[fired_idx].astype(float).to_numpy()
+    fired_actual = actual.loc[fired_idx].to_numpy()
+    fired_abs_z = abs_z.loc[fired_idx].to_numpy()
+
+    fired = pd.DataFrame({
+        "date": df.loc[fired_idx, "date"].to_numpy(),
+        "store_id": df.loc[fired_idx, "store_id"].astype(np.int64).to_numpy(),
+        "rule_id": "revenue_zscore_28d",
+        "actual_value": fired_actual,
+        "expected_low": fired_mean,
+        "expected_high": fired_mean,
+        "distance_from_band": np.abs(fired_actual - fired_mean),
+        "severity_score": fired_abs_z,
+        "severity_level": _zscore_severity(fired_abs_z),
+    })
+    return fired.to_dict("records")
+
+
+def _zscore_severity(abs_z: np.ndarray) -> np.ndarray:
+    """Bucket ``|z|`` into info / warning / critical for the z-score rule.
+
+    The cutoffs (3 and 4) are the rule's own thresholds and are
+    independent of the band rules' ``severity_cfg`` ladder, which is
+    expressed in band-half-widths rather than stddev-multiples.
+    """
+    levels = np.full(len(abs_z), "info", dtype=object)
+    levels[abs_z >= 3.0] = "warning"
+    levels[abs_z >= 4.0] = "critical"
+    return levels
+
+
 def _department_coverage(
     department_metrics_df: pd.DataFrame, rule_cfg: dict,
 ) -> list[dict]:
@@ -367,15 +470,18 @@ def _department_coverage(
     return flags
 
 
-# The dispatch table covers the statistical-band rules only; the
-# structural ``department_coverage`` rule has a different input frame and
-# is invoked directly by :func:`run_all_rules`.
+# The dispatch table covers the rules that evaluate against the
+# store-day metrics frame: the five statistical-band rules plus the
+# rolling-baseline z-score rule. The structural ``department_coverage``
+# rule has a different input frame and is invoked directly by
+# :func:`run_all_rules`.
 _RULE_FUNCS: dict[str, Callable[..., list[dict]]] = {
-    "revenue_band":     _revenue_band,
-    "labor_pct_band":   _labor_pct_band,
-    "avg_ticket_band":  _avg_ticket_band,
-    "transactions_band": _transactions_band,
-    "yoy_comp":         _yoy_comp,
+    "revenue_band":       _revenue_band,
+    "labor_pct_band":     _labor_pct_band,
+    "avg_ticket_band":    _avg_ticket_band,
+    "transactions_band":  _transactions_band,
+    "yoy_comp":           _yoy_comp,
+    "revenue_zscore_28d": _revenue_zscore_28d,
 }
 
 

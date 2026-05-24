@@ -38,12 +38,17 @@ EXPECTED_MISSING = 39
 EXPECTED_DUPLICATE = 13
 EXPECTED_STRUCTURAL = EXPECTED_MISSING + EXPECTED_DUPLICATE  # 52
 
-# Pre-existing statistical-band flag counts; their sum is the canonical's
-# flag count before the structural rule was added.
+# Per-rule flag counts in the committed canonical. The first three are
+# the statistical-band rules whose totals pre-date the structural rule;
+# `revenue_zscore_28d` is the rolling-baseline rule that fires per its
+# learned per-store window. The totals here are the canonical figures
+# the file pins — any regeneration that shifts them needs a matching
+# update here (and downstream in README + __TESTING_NOTES.md).
 EXPECTED_BAND_FLAGS = {
     "revenue_band": 297,
     "transactions_band": 345,
     "yoy_comp": 189,
+    "revenue_zscore_28d": 11,
 }
 
 

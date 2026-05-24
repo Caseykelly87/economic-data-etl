@@ -94,11 +94,19 @@ The load-bearing logic and the tests that hold it.
 - **Detection** — `test_detect_rules.py`. The five static-band rules
   (`revenue_band`, `labor_pct_band`, `avg_ticket_band`,
   `transactions_band`, `yoy_comp`), severity scoring as
-  `distance_from_band / band_half_width`, and each rule's skip behavior.
-  The same file covers the `department_coverage` structural-integrity
-  rule: it reads the department-grain frame and flags store-days whose
-  department row count departs from the ten-department baseline or that
-  carry a duplicated `department_id`.
+  `distance_from_band / band_half_width`, and each rule's skip
+  behavior. The same file covers the `revenue_zscore_28d`
+  rolling-baseline rule: it reads `total_sales` per store-day and
+  flags days whose `|z|` against the trailing 28-day mean (current
+  row excluded) is at least 2.5; the test suite pins the
+  hand-derived rolling mean and severity score, the cold-start skip
+  (fewer than 14 prior observations), the zero-stddev skip
+  (degenerate divide-by-zero guard), and the per-store independence
+  of the learned baseline. The same file also covers the
+  `department_coverage` structural-integrity rule: it reads the
+  department-grain frame and flags store-days whose department row
+  count departs from the ten-department baseline or that carry a
+  duplicated `department_id`.
 - **Anomaly flagging output** — `test_detect_cli.py`,
   `test_detect_integration.py`. The anomalous fixture fires its expected
   `(date, store_id, rule_id)` set; the happy fixture fires nothing; the
@@ -166,13 +174,14 @@ nowhere else": `test_detect_structural_contract.py` reads the committed
 canonical, asserts the rule fires on exactly the 52 irregular
 store-days, and asserts the missing-department and duplicated-department
 cases stay distinguishable by their flagged row count (9 versus 11). It
-also pins the regenerated `anomaly_flags.parquet` at 883 rows — the 52
-structural flags plus the 831 unchanged statistical-band flags.
+also pins the regenerated `anomaly_flags.parquet` at 894 rows — the 52
+structural flags, the 831 unchanged statistical-band flags, and the 11
+`revenue_zscore_28d` rolling-baseline flags the new rule adds.
 
 ## Test categories observed
 
 Categorization snapshot taken when the suite held 246 tests. The suite
-is now at 262; the 16 added tests since the snapshot have not been
+is now at 271; the 25 added tests since the snapshot have not been
 graded under the business/structural/ceremony split, so the table below
 is a dated point-in-time record rather than a current breakdown. The
 suite at the start of the pass that produced the snapshot held 243

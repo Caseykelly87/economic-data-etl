@@ -7,7 +7,7 @@ involvement from the YAML loader or the parquet IO layer.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -113,6 +113,7 @@ def test_load_rules_config_unknown_profile_raises(tmp_path):
         "  avg_ticket_band: { enabled: false }\n"
         "  transactions_band: { enabled: false }\n"
         "  yoy_comp: { enabled: false }\n"
+        "  revenue_zscore_28d: { enabled: false }\n"
         "  department_coverage: { enabled: false }\n"
         "severity: { info_max: 1.0, warning_max: 2.0 }\n",
         encoding="utf-8",
@@ -663,3 +664,224 @@ def test_rule_ids_in_canonical_set(
         _metrics_df(rows), sample_dim_stores_df, detection_rules_config
     )
     assert set(result["rule_id"]).issubset(set(RULE_IDS))
+
+
+# ==============================================================================
+# revenue_zscore_28d
+# ==============================================================================
+
+
+def _zscore_dim_stores(store_ids: list[int], base: float = 1000.0) -> pd.DataFrame:
+    """dim_stores covering ``store_ids`` with a uniform ``base_daily_revenue``.
+
+    The base is chosen by the caller so the static `revenue_band` rule
+    does not fire on the synthetic z-score data; the z-score tests
+    further disable the other rules through ``_only_zscore_config`` so
+    only the rule under test contributes flags.
+    """
+    return pd.DataFrame({
+        "store_id": pd.Series(store_ids, dtype=np.int64),
+        "base_daily_revenue": [base] * len(store_ids),
+        "trade_area_profile": ["suburban-family"] * len(store_ids),
+    })
+
+
+def _only_zscore_config(detection_rules_config: dict) -> dict:
+    """Deep-copy the config with every rule but `revenue_zscore_28d` disabled."""
+    cfg = {**detection_rules_config}
+    cfg["rules"] = {k: dict(v) for k, v in cfg["rules"].items()}
+    for rule_id, rule_cfg in cfg["rules"].items():
+        rule_cfg["enabled"] = rule_id == "revenue_zscore_28d"
+    return cfg
+
+
+def _zscore_rows(
+    store_id: int, sales: list[float], start: date = date(2024, 1, 1),
+) -> list[dict]:
+    """One synthetic store_daily_metrics row per consecutive day starting
+    at ``start``. Non-sales fields are filler; the z-score rule reads
+    only `date`, `store_id`, and `total_sales`."""
+    return [
+        {
+            "date": start + timedelta(days=i),
+            "store_id": store_id,
+            "total_sales": v,
+            "transaction_count": 50,
+            "avg_basket_size": v / 50.0 if v else 0.0,
+            "labor_cost_pct": 0.105,
+        }
+        for i, v in enumerate(sales)
+    ]
+
+
+def _alternating_with_target(
+    center: float, half: float, target_z: float,
+) -> tuple[list[float], float, float]:
+    """Build a 60-day alternating-value series whose final day sits at
+    ``target_z`` stddevs from the prior 28-day rolling mean.
+
+    The whole series alternates ``center - half`` / ``center + half`` so
+    every interior rolling window is the same (mean=center, std stable),
+    and the resulting per-row |z| for non-final days stays under the
+    rule's 2.5 trigger threshold — only the final day fires.
+    Returns the sales list along with the expected mean and stddev for
+    the final day's window so the test can hand-check the flag's
+    `expected_low`, `expected_high`, and `severity_score`.
+
+    The target is nudged by ``1e-9 * sign(target_z) * stddev`` so the
+    computed z lands at or just past ``target_z`` after the
+    subtract-then-divide round-trip (`mean + 3*std` then `(x - mean) /
+    std` would otherwise yield 2.9999999... at the exact 3.0 boundary
+    and bucket-flip into ``info``).
+    """
+    pattern = [center - half if i % 2 == 0 else center + half for i in range(60)]
+    window = pattern[31:59]
+    expected_mean = float(np.mean(window))
+    expected_std = float(np.std(window, ddof=1))
+    nudge = (1.0 if target_z >= 0 else -1.0) * 1e-9
+    pattern[59] = expected_mean + (target_z + nudge) * expected_std
+    return pattern, expected_mean, expected_std
+
+
+class TestRevenueZscore28d:
+    """Business-correctness tests for the rolling z-score rule.
+
+    Each test computes its expected value(s) from the synthetic input
+    (rolling mean, rolling stddev, z-score) and asserts the rule's
+    output against that hand-derived expectation. Severity bucket
+    boundaries (2.5 / 3 / 4) are pinned by their own test.
+    """
+
+    def test_exactly_three_stddevs_fires_warning_with_score_three(
+        self, detection_rules_config,
+    ):
+        """A day whose value sits exactly 3 stddevs above the trailing
+        28-day mean fires one warning flag with severity_score 3.0 and
+        expected_low/high equal to that hand-computed mean.
+
+        Business-correctness: rolling mean and stddev are computed in
+        the test from the prior 28 alternating-value rows, so the
+        expected score is hand-derived and not snapshotted.
+        """
+        sales, expected_mean, expected_std = _alternating_with_target(
+            center=1000.0, half=100.0, target_z=3.0,
+        )
+        target = sales[-1]
+        rows = _zscore_rows(1, sales)
+        cfg = _only_zscore_config(detection_rules_config)
+
+        result = detect_rules.run_all_rules(
+            _metrics_df(rows), _zscore_dim_stores([1]), cfg,
+        )
+
+        z_flags = result[result["rule_id"] == "revenue_zscore_28d"]
+        assert len(z_flags) == 1
+        flag = z_flags.iloc[0]
+        assert flag["severity_level"] == "warning"
+        assert round(float(flag["severity_score"]), 2) == 3.0
+        assert flag["expected_low"] == pytest.approx(expected_mean)
+        assert flag["expected_high"] == pytest.approx(expected_mean)
+        assert flag["actual_value"] == pytest.approx(target)
+        assert flag["distance_from_band"] == pytest.approx(
+            abs(target - expected_mean)
+        )
+
+    def test_insufficient_history_skipped(self, detection_rules_config):
+        """A 14-row store fires nothing: day 14 has only 13 prior rows,
+        below the 14-prior-day minimum the rule documents.
+
+        Business-correctness: 13 < 14 → the rolling window is below
+        min_periods → the row's rolling mean is NaN → the rule has no
+        baseline to compare against and emits no flag.
+        """
+        sales = [1000.0] * 13 + [100000.0]  # day 14 wildly anomalous
+        rows = _zscore_rows(1, sales)
+        cfg = _only_zscore_config(detection_rules_config)
+
+        result = detect_rules.run_all_rules(
+            _metrics_df(rows), _zscore_dim_stores([1]), cfg,
+        )
+
+        assert (result["rule_id"] == "revenue_zscore_28d").sum() == 0
+
+    def test_zero_stddev_history_skipped(self, detection_rules_config):
+        """A flat 28-day history followed by a different value on day
+        29 fires nothing — z-score is undefined when the prior stddev
+        is zero, and the rule guards against the divide-by-zero rather
+        than emitting an infinite-severity flag.
+        """
+        sales = [500.0] * 28 + [9999.0]
+        rows = _zscore_rows(1, sales)
+        cfg = _only_zscore_config(detection_rules_config)
+
+        result = detect_rules.run_all_rules(
+            _metrics_df(rows), _zscore_dim_stores([1]), cfg,
+        )
+
+        assert (result["rule_id"] == "revenue_zscore_28d").sum() == 0
+
+    def test_per_store_independent_baselines(self, detection_rules_config):
+        """Two stores with independently anomalous final days each fire
+        one flag, and each flag's expected baseline matches that
+        store's own rolling history — not the other's.
+
+        Business-correctness: per-store rolling mean and stddev are
+        recomputed in the test from each store's own prior window, so
+        the expected_value asserts independence rather than just
+        flag count.
+        """
+        sales_a, mean_a, _ = _alternating_with_target(
+            center=1000.0, half=100.0, target_z=3.5,
+        )
+        sales_b, mean_b, _ = _alternating_with_target(
+            center=500.0, half=50.0, target_z=-3.5,
+        )
+
+        rows_a = _zscore_rows(1, sales_a)
+        rows_b = _zscore_rows(2, sales_b)
+        cfg = _only_zscore_config(detection_rules_config)
+
+        result = detect_rules.run_all_rules(
+            _metrics_df(rows_a + rows_b),
+            _zscore_dim_stores([1, 2]),
+            cfg,
+        )
+
+        z_flags = result[result["rule_id"] == "revenue_zscore_28d"]
+        assert len(z_flags) == 2
+
+        flag_a = z_flags[z_flags["store_id"] == 1].iloc[0]
+        flag_b = z_flags[z_flags["store_id"] == 2].iloc[0]
+        assert flag_a["expected_low"] == pytest.approx(mean_a)
+        assert flag_b["expected_low"] == pytest.approx(mean_b)
+        assert flag_a["expected_low"] != pytest.approx(flag_b["expected_low"])
+
+    @pytest.mark.parametrize(
+        "z_multiple, expected_severity",
+        [(2.6, "info"), (3.5, "warning"), (4.5, "critical")],
+    )
+    def test_severity_bucket_boundaries(
+        self, detection_rules_config, z_multiple, expected_severity,
+    ):
+        """The 2.5 / 3 / 4 cutoffs each land in the right bucket.
+
+        Business-correctness: target is computed as
+        `mean + z_multiple * stddev` and the rule's reported severity
+        is compared against the bucket the cutoff lookup defines.
+        """
+        sales, _, _ = _alternating_with_target(
+            center=1000.0, half=100.0, target_z=z_multiple,
+        )
+        rows = _zscore_rows(1, sales)
+        cfg = _only_zscore_config(detection_rules_config)
+
+        result = detect_rules.run_all_rules(
+            _metrics_df(rows), _zscore_dim_stores([1]), cfg,
+        )
+
+        z_flags = result[result["rule_id"] == "revenue_zscore_28d"]
+        assert len(z_flags) == 1
+        assert z_flags.iloc[0]["severity_level"] == expected_severity
+        assert float(z_flags.iloc[0]["severity_score"]) == pytest.approx(
+            z_multiple, abs=1e-6
+        )

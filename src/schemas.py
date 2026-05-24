@@ -188,11 +188,15 @@ RULE_IDS: tuple[str, ...] = (
     "avg_ticket_band",
     "transactions_band",
     "yoy_comp",
+    "revenue_zscore_28d",
     "department_coverage",
 )
 """Allowed values for the ``rule_id`` column, in canonical order.
 
 The first five are statistical-band rules evaluated at store-day grain.
+``revenue_zscore_28d`` is a rolling-baseline rule evaluated at
+store-day grain — its expected value is learned from the prior 28
+observations for the store rather than configured.
 ``department_coverage`` is a structural-integrity rule evaluated at
 store-day grain against the department-grain metrics frame; it checks
 the shape of the data (department row count, duplicate department ids)
