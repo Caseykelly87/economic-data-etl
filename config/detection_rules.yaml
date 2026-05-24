@@ -40,6 +40,22 @@ rules:
     ratio_upper: 1.25
     # silently skipped when no T-365 row present in metrics frame
 
+  # Rolling-baseline rule. Unlike the bands above whose expected value
+  # comes from dim_stores or a profile config, this rule learns its
+  # expected value from the prior `window_days` observations for each
+  # store. min_history_days counts PRIOR observations (current row
+  # excluded) — a store's earliest evaluable day is its
+  # (min_history_days + 1)th observation. Rows whose rolling stddev is
+  # zero or NaN are silently skipped (z-score is undefined when recent
+  # history is constant). Severity bucketing reads |z| directly:
+  # info for 2.5 <= |z| < 3, warning for 3 <= |z| < 4, critical for
+  # |z| >= 4.
+  revenue_zscore_28d:
+    enabled: true
+    window_days: 28
+    min_history_days: 14
+    zscore_threshold: 2.5
+
   # Structural-integrity rule. Unlike the bands above it does not check a
   # value against an expected range; it checks the shape of the
   # department-grain metrics frame. A store-day fires when its department
