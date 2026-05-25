@@ -230,11 +230,11 @@ directly. The `dim_stores` input can come from either `sim_output_root`
 or `dim_stores_path`, which lets detection re-run against the committed
 canonical parquets without the upstream sim engine output on hand.
 
-## Sim engine boundary
+## Simulation engine boundary
 
 This ETL repo expects the sim engine to write a directory tree of the
 shape below. The boundary is documented in this repo's README at the
-"Sim engine ingestion" section; the audit confirmed the shape against
+"Simulation engine ingestion" section; the audit confirmed the shape against
 `sim_ingest.py`'s actual read paths.
 
 ```

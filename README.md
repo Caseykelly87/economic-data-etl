@@ -15,7 +15,7 @@ Both pipelines share configuration, structured logging, and CI. The repository c
 - [Quick start](#quick-start)
 - [The macro pipeline](#the-macro-pipeline)
 - [The grocery pipeline](#the-grocery-pipeline)
-  - [Sim engine ingestion](#sim-engine-ingestion)
+  - [Simulation engine ingestion](#simulation-engine-ingestion)
   - [Exception detection](#exception-detection)
   - [Canonical pipeline fixtures](#canonical-pipeline-fixtures)
 - [Project structure](#project-structure)
@@ -169,7 +169,7 @@ To add or remove series, edit `FRED_SERIES`, `BLS_SERIES`, or `ERS_CATEGORY_MAP`
 
 ## The grocery pipeline
 
-### Sim engine ingestion
+### Simulation engine ingestion
 
 A second ingest path, independent of the macro FRED/BLS/ERS pipeline above, consumes daily output from a grocery-chain simulation engine and produces three parquet artifacts: `store_daily_metrics.parquet` at the store-day grain, `department_daily_metrics.parquet` at the store-day-department grain, and `dim_stores.parquet` carrying the 8-store reference dimension. All three are the canonical input for downstream exception detection and the API.
 
