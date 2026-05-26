@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _validate_input_root(sim_output_root: Path) -> None:
     """Fail fast if the sim engine output looks wrong."""
     if not sim_output_root.is_dir():
-        log.error("Sim engine output root does not exist: %s", sim_output_root)
+        log.error("sim engine output root does not exist: %s", sim_output_root)
         sys.exit(2)
     dim_stores = sim_output_root / "dimensions" / "dim_stores.csv"
     if not dim_stores.is_file():

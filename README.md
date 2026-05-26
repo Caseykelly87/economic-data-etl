@@ -5,7 +5,7 @@
 A Python ETL repository containing two pipelines that share infrastructure but address different data domains:
 
 - **Macro pipeline** — ingests 15 U.S. macroeconomic indicators from FRED and BLS, plus 8 food-category CPI forecast series from USDA ERS, normalizes them into a tidy long-format schema, and upserts them into a SQL database.
-- **Grocery pipeline** — ingests CSV output from the upstream `knot-shore-grocery-simulation-engine`, validates schemas, applies detection rules, and produces canonical parquet artifacts that downstream API and portal repositories consume.
+- **Grocery pipeline** — ingests CSV output from the upstream [simulation engine](https://github.com/Caseykelly87/Knot-shore-grocery-simulation-engine), validates schemas, applies detection rules, and produces canonical parquet artifacts that downstream API and portal repositories consume.
 
 Both pipelines share configuration, structured logging, and CI. The repository contains 271 tests covering both, with no live API calls or database connections in the test suite.
 
@@ -36,7 +36,7 @@ upstream csv generator                       this repo                  service 
 
 The grocery side reads the sim engine's CSV output tree, transforms into canonical parquet artifacts, and writes them to `data/processed/canonical/`. Those artifacts are byte-identically copied into the API repo's bundled fixtures (`app/fixtures/`) so a clone-and-run demo of the API works without re-running this pipeline. Reader-grade documentation for the ETL — source-adapter / transform separation, detection rules, canonical fixture flow — lives at the portal's [`/about/etl`](https://github.com/Caseykelly87/knot-shore-portal) page.
 
-The macro pipeline is independent of the grocery side. It connects to FRED, BLS, and ERS sources directly and writes to Postgres. A side dependency: the sim engine's optional Stage 2 (the "realism layer") reads from the same Postgres, so when the sim engine runs with realism enabled, the macro pipeline must have populated the database first.
+The macro pipeline is independent of the grocery side. It connects to FRED, BLS, and ERS sources directly and writes to SQLite by default; Postgres is supported via `DATABASE_URL`. A side dependency: the sim engine's optional Stage 2 (the "realism layer") reads from the same database, so when the sim engine runs with realism enabled, the macro pipeline must have populated it first.
 
 ## Quick start
 
