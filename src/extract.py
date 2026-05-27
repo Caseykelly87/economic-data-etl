@@ -10,6 +10,12 @@ from io import StringIO
 
 import requests
 
+# Macro pipeline uses stdlib logging rather than structlog. The grocery
+# pipeline (sim_ingest.py, sim_transform.py, detect_*.py) uses structlog
+# directly; the asymmetry is intentional. The macro side was the first
+# to ship and its log surface is mature — observability.py's structlog
+# stdlib bridge renders these stdlib calls through the same pipeline.
+
 from src.config import (
     FRED_API_KEY,
     BLS_API_KEY,

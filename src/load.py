@@ -7,6 +7,9 @@ from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
 
 
+# Macro pipeline uses stdlib logging rather than structlog. The grocery
+# pipeline (sim_ingest.py, sim_transform.py, detect_*.py) uses structlog
+# directly; the asymmetry is intentional and documented in observability.py.
 logger = logging.getLogger(__name__)
 
 
@@ -145,6 +148,8 @@ def upsert_observations(df: pd.DataFrame, engine) -> dict:
     """
     stats = {"inserted": 0, "updated": 0, "unchanged": 0}
 
+    # NOTE: loads the full table into memory for comparison.
+    # Acceptable for small datasets; revisit if row counts grow large.
     with engine.connect() as conn:
         existing = pd.read_sql(
             "SELECT series_id, date, value FROM raw.fact_economic_observations", conn

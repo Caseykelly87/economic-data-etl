@@ -3,6 +3,11 @@ import sys
 from sqlalchemy import create_engine
 from datetime import datetime
 
+# Macro pipeline uses stdlib logging rather than structlog. The grocery
+# pipeline (sim_ingest.py, sim_transform.py, detect_*.py) uses structlog
+# directly; the asymmetry is intentional. Configure_logging() below wires
+# the structlog stdlib bridge so both pipelines share a single renderer.
+
 from src.extract import fetch_fred_data, fetch_bls_data, fetch_ers_price_outlook
 from src.transform import (
     parse_fred_observations,
