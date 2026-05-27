@@ -1,4 +1,5 @@
 import logging
+import sys
 from sqlalchemy import create_engine
 from datetime import datetime
 
@@ -46,7 +47,7 @@ def run_pipeline():
                 "error_type": type(e).__name__,
             },
         )
-        return
+        sys.exit(1)
 
     logging.info(
         "Extraction complete.",
@@ -80,7 +81,7 @@ def run_pipeline():
                 "error_type": type(e).__name__,
             },
         )
-        return
+        sys.exit(1)
 
     logging.info(
         "Transform complete.",
@@ -107,7 +108,7 @@ def run_pipeline():
                 "error_type": type(e).__name__,
             },
         )
-        return
+        sys.exit(1)
 
     logging.info(
         f"Pipeline complete — observations: {obs_stats}, dim_series: {dim_stats}",
