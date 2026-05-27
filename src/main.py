@@ -18,6 +18,8 @@ from src.config import (
     ERS_CATEGORY_MAP,
     ERS_SERIES,
     DATABASE_URL,
+    BLS_START_YEAR,
+    ERS_START_YEAR,
     bootstrap_paths,
 )
 from src.observability import configure_logging
@@ -62,7 +64,7 @@ def run_pipeline():
                 f"FRED extraction failed for {len(fred_failures)} series: {failed_names}"
             )
 
-        bls_data    = fetch_bls_data(BLS_SERIES, 2021, datetime.now().year)
+        bls_data    = fetch_bls_data(BLS_SERIES, BLS_START_YEAR, datetime.now().year)
         ers_data    = fetch_ers_price_outlook()
 
     except Exception as e:
@@ -94,7 +96,7 @@ def run_pipeline():
         ]
 
         bls_frame    = parse_bls_batch(bls_data, BLS_SERIES)
-        ers_frame = parse_ers_csv(ers_data, ERS_CATEGORY_MAP, 2024)
+        ers_frame = parse_ers_csv(ers_data, ERS_CATEGORY_MAP, ERS_START_YEAR)
 
         fact_df = combine_fact_tables(fred_frames, bls_frame, extra_frames=[ers_frame])
         dim_df  = build_dim_series(FRED_SERIES, BLS_SERIES, ers_series=ERS_SERIES)

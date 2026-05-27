@@ -20,6 +20,10 @@ FRED_API_KEY = os.getenv("FRED_API_KEY")
 BLS_API_KEY = os.getenv("BLS_API_KEY")
 ERS_SUMMARY_URL = "https://www.ers.usda.gov/data-products/food-price-outlook/summary-findings/"
 
+# Macro extraction windows
+BLS_START_YEAR: int = 2021  # Earliest year fetched from BLS
+ERS_START_YEAR: int = 2024  # Earliest year fetched from ERS food price outlook
+
 
 # --- Refined Data Selection (Dictionary Format) ---
 # Format: "Human_Readable_Name": "Technical_Series_ID"

@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from unittest.mock import patch, call
 from src import main
-from src.config import FRED_SERIES, BLS_SERIES, ERS_SERIES
+from src.config import FRED_SERIES, BLS_SERIES, ERS_SERIES, BLS_START_YEAR
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ def test_run_pipeline_calls_bls_with_correct_args(pipeline_mocks):
     """run_pipeline must call fetch_bls_data with BLS_SERIES and the configured year range."""
     main.run_pipeline()
 
-    pipeline_mocks["fetch_bls"].assert_called_once_with(BLS_SERIES, 2021, datetime.now().year)
+    pipeline_mocks["fetch_bls"].assert_called_once_with(BLS_SERIES, BLS_START_YEAR, datetime.now().year)
 
 
 def test_run_pipeline_exits_nonzero_on_fred_error(pipeline_mocks, caplog):
