@@ -260,7 +260,7 @@ The boundary matters: code in `src/` has no awareness that ground-truth labels e
 
 ### Canonical pipeline fixtures
 
-Four canonical parquet artifacts produced by running the sim engine + ETL pipeline end-to-end are committed at `data/processed/canonical/`:
+Four canonical parquet artifacts and one JSON measurement artifact produced by running the sim engine + ETL pipeline end-to-end are committed at `data/processed/canonical/`:
 
 | File | Rows × Cols | Notes |
 |---|---:|---|
@@ -268,6 +268,7 @@ Four canonical parquet artifacts produced by running the sim engine + ETL pipeli
 | `department_daily_metrics.parquet` | 29,414 × 7 | Same window across 10 departments per store-day |
 | `dim_stores.parquet` | 8 × 10 | One row per store with identification, location, and base_daily_revenue |
 | `anomaly_flags.parquet` | 894 × 9 | 815 info, 78 warning, 1 critical |
+| `detection_quality.json` | — | Recall, false-positive rate, per-anomaly-type recall, and the phase 2 contract verdict measured against the sim engine's ground-truth `anomaly_log.csv`. |
 
 **`store_daily_metrics.parquet`** spans two paired six-month windows: 2024-07-01 through 2024-12-31 and 2025-07-01 through 2025-12-31, each covering all 8 stores. The 2025 window is the demo dataset surfaced by the dashboard; the 2024 window enables year-over-year comparison views consumed by the portal's store drilldown via the API's existing `start_date` / `end_date` query parameters. Filtering this parquet to the 2025 window yields 1,472 rows. Columns: `date`, `store_id`, `total_sales`, `transaction_count`, `avg_basket_size`, `labor_cost_pct`.
 
@@ -277,7 +278,9 @@ Four canonical parquet artifacts produced by running the sim engine + ETL pipeli
 
 **`anomaly_flags.parquet`** is the `detect_cli` output: the five statistical-band rules and `revenue_zscore_28d` run against the store-day metrics, and the `department_coverage` structural rule runs against the department metrics. Detection runs across both the 2024 and 2025 windows; the `yoy_comp` rule fires only where a prior-year baseline exists, and `revenue_zscore_28d` fires only after a store has at least 14 prior observations. Of the 894 rows, 831 are static-band flags, 52 are structural flags, and 11 are rolling-baseline flags.
 
-These four files are the authoritative downstream input for the `economic-data-api` repo's bundled fixtures. The API copies them byte-identically into `app/fixtures/` so a clone-and-run demo of the API works without re-running this pipeline. Committing them to git makes the canonical state visible in PR diffs and reproducible across clones without requiring downstream consumers to install and run the sim engine.
+**`detection_quality.json`** is the output of `scripts/evaluate_detection.py` against the canonical parquets and the sim engine's ground-truth anomaly log. It captures global recall, false-positive rate, per-anomaly-type recall, and the counts behind them in a stable shape downstream consumers can render directly — the API exposes it at `/insights/detection-quality` and the portal renders the verdict on an about-page. The script that produces these numbers is isolated from `src/` by social contract: only `scripts/evaluate_detection.py` reads the ground-truth log, so the JSON is a real measurement rather than an answer-key lookup.
+
+These five files are the authoritative downstream input for the `economic-data-api` repo's bundled fixtures. The API copies them byte-identically into `app/fixtures/` so a clone-and-run demo of the API works without re-running this pipeline. Committing them to git makes the canonical state visible in PR diffs and reproducible across clones without requiring downstream consumers to install and run the sim engine.
 
 #### Regeneration workflow
 
@@ -297,7 +300,7 @@ The canonical fixtures are regenerated only when the underlying sim engine outpu
        --output-dir data/processed/canonical/
    ```
 
-   The script orchestrates `sim_cli` followed by `detect_cli` via subprocess and writes all four parquets to `--output-dir`.
+   The script orchestrates `sim_cli` followed by `detect_cli` via subprocess, writes all four parquets to `--output-dir`, then invokes `evaluate_detection.py` to add `detection_quality.json` to the same directory. A failing contract verdict is logged as a warning but does not fail the build — the JSON artifact reflects whatever the current detection layer produces.
 
 3. **Verify** the resulting parquets visually (date range, row counts, columns) and confirm byte-determinism by re-running the script to a temp directory and comparing SHA-256 hashes.
 
