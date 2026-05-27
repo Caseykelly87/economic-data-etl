@@ -128,6 +128,55 @@ def test_fetch_with_retry_preserves_function_name():
     assert my_func.__name__ == "my_func"
 
 
+def test_fetch_with_retry_fast_fails_on_4xx(monkeypatch):
+    """4xx HTTP errors must propagate immediately without retry.
+
+    Business-correctness: client errors (bad credentials, malformed
+    requests, missing endpoints) will not succeed on retry; retrying
+    just wastes time and adds upstream load.
+    """
+    monkeypatch.setattr(extract.time, "sleep", lambda _: None)
+
+    call_count = 0
+    response = MagicMock()
+    response.status_code = 401
+
+    @extract.fetch_with_retry
+    def unauthorized():
+        nonlocal call_count
+        call_count += 1
+        err = requests.exceptions.HTTPError("401 Unauthorized")
+        err.response = response
+        raise err
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        unauthorized()
+
+    assert call_count == 1, "4xx must not be retried"
+
+
+def test_fetch_with_retry_retries_on_5xx(monkeypatch):
+    """5xx HTTP errors must be retried like other transient failures."""
+    monkeypatch.setattr(extract.time, "sleep", lambda _: None)
+
+    call_count = 0
+    response = MagicMock()
+    response.status_code = 503
+
+    @extract.fetch_with_retry
+    def flaky_5xx():
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            err = requests.exceptions.HTTPError("503 Service Unavailable")
+            err.response = response
+            raise err
+        return "ok"
+
+    assert flaky_5xx() == "ok"
+    assert call_count == 3
+
+
 # ==========================================================
 # FRED Extraction Tests
 # ==========================================================

@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from unittest.mock import patch, call
 from src import main
-from src.config import FRED_SERIES, BLS_SERIES, ERS_SERIES
+from src.config import FRED_SERIES, BLS_SERIES, ERS_SERIES, BLS_START_YEAR
 
 
 # ---------------------------------------------------------------------------
@@ -78,28 +78,55 @@ def test_run_pipeline_calls_bls_with_correct_args(pipeline_mocks):
     """run_pipeline must call fetch_bls_data with BLS_SERIES and the configured year range."""
     main.run_pipeline()
 
-    pipeline_mocks["fetch_bls"].assert_called_once_with(BLS_SERIES, 2021, datetime.now().year)
+    pipeline_mocks["fetch_bls"].assert_called_once_with(BLS_SERIES, BLS_START_YEAR, datetime.now().year)
 
 
-def test_run_pipeline_handles_fred_error_gracefully(pipeline_mocks, caplog):
-    """An extraction error must be logged and must not raise out of run_pipeline."""
+def test_run_pipeline_exits_nonzero_on_fred_error(pipeline_mocks, caplog):
+    """A FRED extraction error must be logged and exit the process with code 1."""
     pipeline_mocks["fetch_fred"].side_effect = Exception("API down")
 
     with caplog.at_level(logging.ERROR):
-        main.run_pipeline()  # Must not raise
+        with pytest.raises(SystemExit) as exc_info:
+            main.run_pipeline()
 
+    assert exc_info.value.code == 1
     assert "Pipeline failed" in caplog.text
     pipeline_mocks["fetch_bls"].assert_not_called()  # BLS must not run when FRED fails
 
 
-def test_run_pipeline_handles_bls_error_gracefully(pipeline_mocks, caplog):
-    """A BLS extraction error must be logged and must not raise out of run_pipeline."""
+def test_run_pipeline_exits_nonzero_on_bls_error(pipeline_mocks, caplog):
+    """A BLS extraction error must be logged and exit the process with code 1."""
     pipeline_mocks["fetch_bls"].side_effect = RuntimeError("BLS down")
 
     with caplog.at_level(logging.ERROR):
-        main.run_pipeline()  # Must not raise
+        with pytest.raises(SystemExit) as exc_info:
+            main.run_pipeline()
 
+    assert exc_info.value.code == 1
     assert "Pipeline failed" in caplog.text
+
+def test_run_pipeline_fred_per_series_isolation(pipeline_mocks, caplog):
+    """One failing FRED series must not stop the rest of the loop.
+
+    Structural: pins the contract that every series is attempted even when
+    an earlier one raises, and that the phase still ultimately fails so the
+    operator does not silently lose data.
+    """
+    # First call raises, remaining calls succeed with the neutral _FRED_DATA stub.
+    pipeline_mocks["fetch_fred"].side_effect = [Exception("series 1 down")] + [
+        _FRED_DATA
+    ] * (len(FRED_SERIES) - 1)
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(SystemExit) as exc_info:
+            main.run_pipeline()
+
+    assert exc_info.value.code == 1
+    assert pipeline_mocks["fetch_fred"].call_count == len(FRED_SERIES)
+    assert "FRED fetch failed" in caplog.text
+    # BLS must not run when any FRED series failed.
+    pipeline_mocks["fetch_bls"].assert_not_called()
+
 
 def test_run_pipeline_calls_fetch_ers_price_outlook(pipeline_mocks):
     """fetch_ers_price_outlook must be called once during extraction."""
@@ -154,13 +181,15 @@ def test_run_pipeline_calls_build_dim_series(pipeline_mocks):
 
 
 
-def test_run_pipeline_handles_transform_error_gracefully(pipeline_mocks, caplog):
-    """A transform error must be logged and load must not run."""
+def test_run_pipeline_exits_nonzero_on_transform_error(pipeline_mocks, caplog):
+    """A transform error must be logged, exit code 1, and skip the load phase."""
     pipeline_mocks["parse_fred"].side_effect = KeyError("observations")
 
     with caplog.at_level(logging.ERROR):
-        main.run_pipeline()  # Must not raise
+        with pytest.raises(SystemExit) as exc_info:
+            main.run_pipeline()
 
+    assert exc_info.value.code == 1
     assert "Pipeline failed" in caplog.text
     pipeline_mocks["ensure_tables"].assert_not_called()
 
@@ -190,11 +219,13 @@ def test_run_pipeline_calls_upsert_dim_series(pipeline_mocks):
     pipeline_mocks["upsert_dim"].assert_called_once()
 
 
-def test_run_pipeline_handles_load_error_gracefully(pipeline_mocks, caplog):
-    """A load error must be logged and must not raise out of run_pipeline."""
+def test_run_pipeline_exits_nonzero_on_load_error(pipeline_mocks, caplog):
+    """A load error must be logged and exit the process with code 1."""
     pipeline_mocks["ensure_tables"].side_effect = Exception("DB unavailable")
 
     with caplog.at_level(logging.ERROR):
-        main.run_pipeline()  # Must not raise
+        with pytest.raises(SystemExit) as exc_info:
+            main.run_pipeline()
 
+    assert exc_info.value.code == 1
     assert "Pipeline failed" in caplog.text

@@ -7,7 +7,7 @@ A Python ETL repository containing two pipelines that share infrastructure but a
 - **Macro pipeline** — ingests 15 U.S. macroeconomic indicators from FRED and BLS, plus 8 food-category CPI forecast series from USDA ERS, normalizes them into a tidy long-format schema, and upserts them into a SQL database.
 - **Grocery pipeline** — ingests CSV output from the upstream [simulation engine](https://github.com/Caseykelly87/Knot-shore-grocery-simulation-engine), validates schemas, applies detection rules, and produces canonical parquet artifacts that downstream API and portal repositories consume.
 
-Both pipelines share configuration, structured logging, and CI. The repository contains 271 tests covering both, with no live API calls or database connections in the test suite.
+Both pipelines share configuration, structured logging, and CI. The repository contains 274 tests covering both, with no live API calls or database connections in the test suite.
 
 ## Table of contents
 
@@ -25,6 +25,8 @@ Both pipelines share configuration, structured logging, and CI. The repository c
 - [Adjacent repositories](#adjacent-repositories)
 
 ## Where this fits in the platform
+
+The platform's deployed portal is at https://knot-shore-portal.vercel.app (offline mode, bundled fixtures); the full-stack technical demo is the orchestration repo at https://github.com/Caseykelly87/knot-shore-platform.
 
 The grocery pipeline sits between the upstream sim engine and the downstream API + portal:
 
@@ -98,7 +100,7 @@ python -m src.detect_cli \
 ### Run all tests
 
 ```bash
-python -m pytest -q                            # 271 tests, no live api or db calls
+python -m pytest -q                            # 274 tests, no live api or db calls
 python -m pytest --cov=src                     # with coverage
 python -m pytest tests/test_detect_rules.py    # single file
 ```
@@ -337,10 +339,10 @@ Ad-hoc parquet output produced by running `sim_cli` or `detect_cli` directly (e.
 │   └── detect_cli.py           # Grocery-side cli: canonical -> anomaly flags
 ├── tests/
 │   ├── conftest.py
-│   ├── test_extract.py                    # 30 tests — macro extract + idempotency
+│   ├── test_extract.py                    # 32 tests — macro extract + idempotency
 │   ├── test_transform.py                  # 45 tests — macro transform + edge cases
 │   ├── test_load.py                       # 16 tests — schema, upsert, idempotency
-│   ├── test_main.py                       # 15 tests — macro pipeline orchestration
+│   ├── test_main.py                       # 16 tests — macro pipeline orchestration
 │   ├── test_observability.py              # 3 tests — shared logging configurator
 │   ├── test_sim_ingest.py                 # 16 tests — store-grain csv adapter
 │   ├── test_sim_ingest_department.py      # 12 tests — department-grain csv adapter
@@ -441,7 +443,7 @@ On Windows, stdout defaults to cp1252 encoding which can't render some non-ASCII
 ## Testing
 
 ```bash
-python -m pytest -q                              # all 271 tests
+python -m pytest -q                              # all 274 tests
 python -m pytest -v                              # verbose
 python -m pytest --cov=src                       # with coverage
 python -m pytest tests/test_detect_rules.py      # single file

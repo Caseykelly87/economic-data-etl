@@ -1,11 +1,22 @@
 import logging
 from pathlib import Path
+from weakref import WeakSet
 
 import pandas as pd
 from sqlalchemy import event, text
+from sqlalchemy.engine import Engine
 
 
+# Macro pipeline uses stdlib logging rather than structlog. The grocery
+# pipeline (sim_ingest.py, sim_transform.py, detect_*.py) uses structlog
+# directly; the asymmetry is intentional and documented in observability.py.
 logger = logging.getLogger(__name__)
+
+
+# Tracks SQLAlchemy engines that have had the SQLite raw-attach connect
+# listener wired up. WeakSet so a disposed engine is garbage-collected
+# without lingering in this registry.
+_wired_engines: WeakSet[Engine] = WeakSet()
 
 
 def _sqlite_raw_target(engine_url) -> str:
@@ -23,15 +34,17 @@ def _sqlite_raw_target(engine_url) -> str:
     return (main_path.parent / f"{main_path.stem}_raw.db").as_posix()
 
 
-def _wire_sqlite_raw_attach(engine) -> None:
+def _wire_sqlite_raw_attach(engine: Engine) -> None:
     """Register a connect listener that ATTACHes the raw database for SQLite.
 
     SQLite has no native schemas — `raw.<table>` is interpreted as a table
     in an attached database named `raw`. The listener fires on every new
     pooled connection so callers see the schema regardless of pool churn.
-    Marked on the engine so repeat calls are no-ops.
+    Idempotent — tracked via the module-level _wired_engines WeakSet so
+    repeated calls on the same engine instance are no-ops without
+    attaching an arbitrary attribute to the third-party Engine class.
     """
-    if getattr(engine, "_raw_attach_wired", False):
+    if engine in _wired_engines:
         return
     target = _sqlite_raw_target(engine.url)
 
@@ -43,7 +56,7 @@ def _wire_sqlite_raw_attach(engine) -> None:
         finally:
             cur.close()
 
-    engine._raw_attach_wired = True
+    _wired_engines.add(engine)
 
 
 def ensure_tables_exist(engine) -> None:
@@ -135,6 +148,8 @@ def upsert_observations(df: pd.DataFrame, engine) -> dict:
     """
     stats = {"inserted": 0, "updated": 0, "unchanged": 0}
 
+    # NOTE: loads the full table into memory for comparison.
+    # Acceptable for small datasets; revisit if row counts grow large.
     with engine.connect() as conn:
         existing = pd.read_sql(
             "SELECT series_id, date, value FROM raw.fact_economic_observations", conn

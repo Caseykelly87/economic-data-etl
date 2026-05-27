@@ -1,6 +1,12 @@
 import logging
+import sys
 from sqlalchemy import create_engine
 from datetime import datetime
+
+# Macro pipeline uses stdlib logging rather than structlog. The grocery
+# pipeline (sim_ingest.py, sim_transform.py, detect_*.py) uses structlog
+# directly; the asymmetry is intentional. Configure_logging() below wires
+# the structlog stdlib bridge so both pipelines share a single renderer.
 
 from src.extract import fetch_fred_data, fetch_bls_data, fetch_ers_price_outlook
 from src.transform import (
@@ -11,7 +17,16 @@ from src.transform import (
     combine_fact_tables,
 )
 from src.load import ensure_tables_exist, upsert_observations, upsert_dim_series
-from src.config import FRED_SERIES, BLS_SERIES, ERS_CATEGORY_MAP, ERS_SERIES, DATABASE_URL
+from src.config import (
+    FRED_SERIES,
+    BLS_SERIES,
+    ERS_CATEGORY_MAP,
+    ERS_SERIES,
+    DATABASE_URL,
+    BLS_START_YEAR,
+    ERS_START_YEAR,
+    bootstrap_paths,
+)
 from src.observability import configure_logging
 
 
@@ -24,15 +39,37 @@ def run_pipeline():
         extra={"source": "pipeline", "stage": "startup"},
     )
 
+    bootstrap_paths()
+
     # ------------------------------------------------------------------
     # Phase 1: Extract — fetch from APIs and persist raw JSON snapshots
     # ------------------------------------------------------------------
     try:
         fred_data = {}
+        fred_failures: list[tuple[str, str, Exception]] = []
         for name, series_id in FRED_SERIES.items():
-            fred_data[name] = fetch_fred_data(series_id)
+            try:
+                fred_data[name] = fetch_fred_data(series_id)
+            except Exception as e:
+                fred_failures.append((name, series_id, e))
+                logging.error(
+                    f"FRED fetch failed for {name} ({series_id}): {e}",
+                    extra={
+                        "source": "fred",
+                        "series_name": name,
+                        "series_id": series_id,
+                        "status": "failed",
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+        if fred_failures:
+            failed_names = [name for name, _, _ in fred_failures]
+            raise RuntimeError(
+                f"FRED extraction failed for {len(fred_failures)} series: {failed_names}"
+            )
 
-        bls_data    = fetch_bls_data(BLS_SERIES, 2021, datetime.now().year)
+        bls_data    = fetch_bls_data(BLS_SERIES, BLS_START_YEAR, datetime.now().year)
         ers_data    = fetch_ers_price_outlook()
 
     except Exception as e:
@@ -46,7 +83,7 @@ def run_pipeline():
                 "error_type": type(e).__name__,
             },
         )
-        return
+        sys.exit(1)
 
     logging.info(
         "Extraction complete.",
@@ -64,7 +101,7 @@ def run_pipeline():
         ]
 
         bls_frame    = parse_bls_batch(bls_data, BLS_SERIES)
-        ers_frame = parse_ers_csv(ers_data, ERS_CATEGORY_MAP, 2024)
+        ers_frame = parse_ers_csv(ers_data, ERS_CATEGORY_MAP, ERS_START_YEAR)
 
         fact_df = combine_fact_tables(fred_frames, bls_frame, extra_frames=[ers_frame])
         dim_df  = build_dim_series(FRED_SERIES, BLS_SERIES, ers_series=ERS_SERIES)
@@ -80,7 +117,7 @@ def run_pipeline():
                 "error_type": type(e).__name__,
             },
         )
-        return
+        sys.exit(1)
 
     logging.info(
         "Transform complete.",
@@ -107,7 +144,7 @@ def run_pipeline():
                 "error_type": type(e).__name__,
             },
         )
-        return
+        sys.exit(1)
 
     logging.info(
         f"Pipeline complete — observations: {obs_stats}, dim_series: {dim_stats}",

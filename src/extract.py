@@ -10,6 +10,12 @@ from io import StringIO
 
 import requests
 
+# Macro pipeline uses stdlib logging rather than structlog. The grocery
+# pipeline (sim_ingest.py, sim_transform.py, detect_*.py) uses structlog
+# directly; the asymmetry is intentional. The macro side was the first
+# to ship and its log surface is mature — observability.py's structlog
+# stdlib bridge renders these stdlib calls through the same pipeline.
+
 from src.config import (
     FRED_API_KEY,
     BLS_API_KEY,
@@ -53,12 +59,45 @@ def get_storage_path(source, identifier):
 
 
 def fetch_with_retry(func):
-    """Retry decorator with exponential backoff for transient network errors."""
+    """Retry decorator with exponential backoff for transient network errors.
+
+    Retries on connection errors, timeouts, and 5xx HTTP errors. Fast-fails
+    on 4xx HTTP errors — those are client errors (bad credentials, malformed
+    requests, missing endpoints) that will not succeed on retry; retrying
+    just wastes time and adds upstream load.
+    """
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         for attempt in range(3):
             try:
                 return func(*args, **kwargs)
+            except requests.exceptions.HTTPError as e:
+                status = getattr(e.response, "status_code", None)
+                if status is not None and 400 <= status < 500:
+                    logging.error(
+                        f"4xx response from upstream, not retrying: {e}",
+                        extra={
+                            "source": "http_client",
+                            "status_code": status,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                        },
+                    )
+                    raise
+                logging.warning(
+                    f"Attempt {attempt+1} failed (HTTP {status}): {e}",
+                    extra={
+                        "source": "http_client",
+                        "attempt": attempt + 1,
+                        "status_code": status,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+                if attempt < 2:
+                    time.sleep(2 ** attempt)
+                else:
+                    raise
             except requests.exceptions.RequestException as e:
                 logging.warning(
                     f"Attempt {attempt+1} failed: {e}",
