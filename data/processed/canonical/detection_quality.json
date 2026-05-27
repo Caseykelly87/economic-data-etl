@@ -1,0 +1,35 @@
+{
+  "global": {
+    "injected_pairs": 135,
+    "matched_pairs": 65,
+    "recall": 0.48148148148148145
+  },
+  "by_anomaly_type": {
+    "duplicate_row": {
+      "injected": 13,
+      "matched": 13,
+      "recall": 1.0
+    },
+    "integrity_breach": {
+      "injected": 59,
+      "matched": 9,
+      "recall": 0.15254237288135594
+    },
+    "margin_outlier": {
+      "injected": 24,
+      "matched": 4,
+      "recall": 0.16666666666666666
+    },
+    "missing_department": {
+      "injected": 39,
+      "matched": 39,
+      "recall": 1.0
+    }
+  },
+  "false_positive_rate": 0.18832324670701317,
+  "false_positives": 529,
+  "negative_universe": 2809,
+  "flag_rate": 0.30366847826086957,
+  "total_flags": 894,
+  "total_metric_rows": 2944
+}
