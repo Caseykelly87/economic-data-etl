@@ -9,9 +9,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_RAW_DIR = BASE_DIR / "data" / "raw"
 DATA_PROCESSED_DIR = BASE_DIR / "data" / "processed"
 
-DATA_RAW_DIR.mkdir(parents=True, exist_ok=True)
-DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-
 # Database
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -58,7 +55,6 @@ BLS_SERIES = {
 
 # --- Metadata Storage ---
 DATA_METADATA_DIR = BASE_DIR / "data" / "metadata"
-DATA_METADATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # --- ERS Food Price Outlook Configuration ---
@@ -76,3 +72,16 @@ ERS_CATEGORY_MAP = {
 
 # ERS dimension entries (name -> series_id)
 ERS_SERIES = {sid: sid for sid in ERS_CATEGORY_MAP.values()}
+
+
+def bootstrap_paths() -> None:
+    """Create the data directories the pipeline writes to.
+
+    Called explicitly by the pipeline entry point. Importing this
+    module no longer creates directories — that simplifies test setup
+    and avoids side-effecting any consumer that imports FRED_SERIES,
+    BLS_SERIES, or DATABASE_URL but doesn't run the pipeline.
+    """
+    DATA_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    DATA_METADATA_DIR.mkdir(parents=True, exist_ok=True)

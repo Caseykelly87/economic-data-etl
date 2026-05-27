@@ -12,7 +12,14 @@ from src.transform import (
     combine_fact_tables,
 )
 from src.load import ensure_tables_exist, upsert_observations, upsert_dim_series
-from src.config import FRED_SERIES, BLS_SERIES, ERS_CATEGORY_MAP, ERS_SERIES, DATABASE_URL
+from src.config import (
+    FRED_SERIES,
+    BLS_SERIES,
+    ERS_CATEGORY_MAP,
+    ERS_SERIES,
+    DATABASE_URL,
+    bootstrap_paths,
+)
 from src.observability import configure_logging
 
 
@@ -24,6 +31,8 @@ def run_pipeline():
         "Starting Economic Data ETL Pipeline",
         extra={"source": "pipeline", "stage": "startup"},
     )
+
+    bootstrap_paths()
 
     # ------------------------------------------------------------------
     # Phase 1: Extract — fetch from APIs and persist raw JSON snapshots

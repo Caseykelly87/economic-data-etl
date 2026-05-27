@@ -42,14 +42,14 @@ symbols passed; summary line read `summary: 0 failure(s)`.
 Import-time behavior to be aware of when wiring DAG tasks:
 
 - Importing `src.config` calls `dotenv.load_dotenv()` to read a `.env`
-  file from the repo root, and creates `data/raw/`, `data/processed/`,
-  and `data/metadata/` under `BASE_DIR` (the repo root) via
-  `Path.mkdir(parents=True, exist_ok=True)`. Inside the bind-mounted
-  Airflow container, `BASE_DIR` resolves to `/opt/airflow/etl`, so
-  these directories will be created there on first import. This is
-  benign for the existing DAG (those directories are where raw JSON
-  snapshots are persisted) but worth knowing if the orchestration repo
-  ever imports `src.config` from a worker without write access.
+  file from the repo root but no longer creates `data/raw/`,
+  `data/processed/`, or `data/metadata/`. Directory creation is gated
+  behind `src.config.bootstrap_paths()`, which the pipeline's entry
+  point (`src.main.run_pipeline`) calls explicitly before phase 1.
+  Airflow-side wrappers that import `src.config` for `FRED_SERIES`,
+  `BLS_SERIES`, or `DATABASE_URL` but do not run the full pipeline
+  need to call `bootstrap_paths()` themselves before writing under any
+  of the three paths.
 - Importing `src.extract`, `src.transform`, `src.load` does not
   configure logging, mutate `os.environ`, or perform IO. They are pure
   function-definition modules at import time.
