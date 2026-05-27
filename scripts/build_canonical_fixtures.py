@@ -7,6 +7,11 @@ sim engine output directory. Used to regenerate the committed
 canonical fixtures at data/processed/canonical/ when the underlying
 sim engine output changes.
 
+It also invokes evaluate_detection.py to write detection_quality.json
+alongside the parquets, capturing recall, FPR, per-anomaly-type
+recall, and the phase 2 contract verdict in a form downstream
+consumers (API endpoint, portal page) can read directly.
+
 NOT collected by pytest (lives in scripts/, not tests/). Intended
 for manual developer invocation.
 
@@ -19,10 +24,14 @@ Usage
 Exit codes
 ----------
 0
-    All three parquets written successfully.
+    All parquets written successfully. The detection_quality.json
+    artifact is written when a sim engine anomaly_log.csv tree is
+    present; a failing contract verdict is logged as a warning but
+    does not fail the build.
 nonzero
-    The wrapped sim_cli or detect_cli failed; their stderr is
-    surfaced to this script's stderr.
+    The wrapped sim_cli or detect_cli failed, or evaluate_detection
+    failed in a way that prevented the JSON artifact from being
+    written; their stderr is surfaced to this script's stderr.
 """
 
 from __future__ import annotations
@@ -31,6 +40,7 @@ import argparse
 import logging
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 logging.basicConfig(
@@ -156,11 +166,119 @@ def run(sim_output_root: Path, output_dir: Path, rules_path: Path) -> None:
         log.error("detect_cli reported success but %s does not exist", flags_path)
         sys.exit(3)
 
+    log.info(
+        "Step 3/3: invoking evaluate_detection to produce detection_quality.json"
+    )
+    detection_quality_path = _run_evaluate_detection(
+        sim_output_root=sim_output_root,
+        metrics_path=metrics_path,
+        flags_path=flags_path,
+        output_dir=output_dir,
+    )
+
     log.info("Canonical fixtures written:")
     log.info("  %s", metrics_path)
     log.info("  %s", department_metrics_path)
     log.info("  %s", dim_stores_path)
     log.info("  %s", flags_path)
+    if detection_quality_path is not None:
+        log.info("  %s", detection_quality_path)
+
+
+def _run_evaluate_detection(
+    sim_output_root: Path,
+    metrics_path: Path,
+    flags_path: Path,
+    output_dir: Path,
+) -> Path | None:
+    """Aggregate the sim engine's daily anomaly_log.csv files and run
+    evaluate_detection.py, writing detection_quality.json into output_dir.
+
+    Returns the JSON path on success (including the contract-fail case,
+    which is logged as a warning but not treated as a build error).
+    Returns None when the sim output tree contains no daily anomaly_log
+    files — typical of the minimal test fixtures, which inject no
+    anomalies and therefore have nothing to measure recall against.
+    Exits non-zero only when evaluate_detection itself fails to produce
+    the JSON artifact.
+    """
+    daily_logs = sorted(sim_output_root.glob("daily/*/*/*/anomaly_log.csv"))
+    if not daily_logs:
+        log.info(
+            "No daily anomaly_log.csv files under %s/daily/ - "
+            "skipping detection-quality measurement.",
+            sim_output_root,
+        )
+        return None
+
+    log.info(
+        "Aggregating %d daily anomaly_log.csv files for evaluate_detection",
+        len(daily_logs),
+    )
+
+    detection_quality_path = output_dir / "detection_quality.json"
+    repo_root = Path(__file__).resolve().parent.parent
+    evaluate_script = repo_root / "scripts" / "evaluate_detection.py"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        aggregated_log = Path(tmpdir) / "anomaly_log.csv"
+        _concatenate_csvs(daily_logs, aggregated_log)
+
+        eval_result = subprocess.run(
+            [
+                sys.executable, str(evaluate_script),
+                "--flags-path", str(flags_path),
+                "--metrics-path", str(metrics_path),
+                "--anomaly-log-path", str(aggregated_log),
+                "--output-path", str(detection_quality_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+    if not detection_quality_path.is_file():
+        log.error(
+            "evaluate_detection failed (exit %d) and did not write %s",
+            eval_result.returncode,
+            detection_quality_path,
+        )
+        log.error("evaluate_detection stderr:\n%s", eval_result.stderr)
+        sys.exit(eval_result.returncode or 3)
+
+    log.info("evaluate_detection output:\n%s", eval_result.stdout.strip())
+
+    # Contract verdict failure is exit code 1 with the JSON still written.
+    # Surface as a warning; the artifact is information for downstream
+    # consumers, not a gate on the canonical build.
+    if eval_result.returncode != 0:
+        log.warning(
+            "Detection contract verdict: FAIL (evaluate_detection exit %d). "
+            "detection_quality.json was written; downstream consumers will "
+            "render the failing verdict.",
+            eval_result.returncode,
+        )
+
+    return detection_quality_path
+
+
+def _concatenate_csvs(sources: list[Path], destination: Path) -> None:
+    """Concatenate sources into destination with a single header row.
+
+    Avoids a pandas dependency in this helper so the orchestration
+    stays import-light; the per-day anomaly_log files share an
+    identical five-column header by sim engine convention.
+    """
+    with destination.open("w", encoding="utf-8", newline="") as out:
+        header_written = False
+        for src in sources:
+            with src.open("r", encoding="utf-8", newline="") as fh:
+                header = fh.readline()
+                if not header_written:
+                    out.write(header)
+                    header_written = True
+                for line in fh:
+                    if line.strip():
+                        out.write(line)
 
 
 def main(argv: list[str] | None = None) -> int:
