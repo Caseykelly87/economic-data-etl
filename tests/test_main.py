@@ -105,6 +105,29 @@ def test_run_pipeline_exits_nonzero_on_bls_error(pipeline_mocks, caplog):
     assert exc_info.value.code == 1
     assert "Pipeline failed" in caplog.text
 
+def test_run_pipeline_fred_per_series_isolation(pipeline_mocks, caplog):
+    """One failing FRED series must not stop the rest of the loop.
+
+    Structural: pins the contract that every series is attempted even when
+    an earlier one raises, and that the phase still ultimately fails so the
+    operator does not silently lose data.
+    """
+    # First call raises, remaining calls succeed with the neutral _FRED_DATA stub.
+    pipeline_mocks["fetch_fred"].side_effect = [Exception("series 1 down")] + [
+        _FRED_DATA
+    ] * (len(FRED_SERIES) - 1)
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(SystemExit) as exc_info:
+            main.run_pipeline()
+
+    assert exc_info.value.code == 1
+    assert pipeline_mocks["fetch_fred"].call_count == len(FRED_SERIES)
+    assert "FRED fetch failed" in caplog.text
+    # BLS must not run when any FRED series failed.
+    pipeline_mocks["fetch_bls"].assert_not_called()
+
+
 def test_run_pipeline_calls_fetch_ers_price_outlook(pipeline_mocks):
     """fetch_ers_price_outlook must be called once during extraction."""
     main.run_pipeline()

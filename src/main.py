@@ -39,8 +39,28 @@ def run_pipeline():
     # ------------------------------------------------------------------
     try:
         fred_data = {}
+        fred_failures: list[tuple[str, str, Exception]] = []
         for name, series_id in FRED_SERIES.items():
-            fred_data[name] = fetch_fred_data(series_id)
+            try:
+                fred_data[name] = fetch_fred_data(series_id)
+            except Exception as e:
+                fred_failures.append((name, series_id, e))
+                logging.error(
+                    f"FRED fetch failed for {name} ({series_id}): {e}",
+                    extra={
+                        "source": "fred",
+                        "series_name": name,
+                        "series_id": series_id,
+                        "status": "failed",
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+        if fred_failures:
+            failed_names = [name for name, _, _ in fred_failures]
+            raise RuntimeError(
+                f"FRED extraction failed for {len(fred_failures)} series: {failed_names}"
+            )
 
         bls_data    = fetch_bls_data(BLS_SERIES, 2021, datetime.now().year)
         ers_data    = fetch_ers_price_outlook()
