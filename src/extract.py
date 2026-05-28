@@ -2,6 +2,7 @@ import functools
 import json
 import logging
 import hashlib
+import random
 import re
 import csv
 import time
@@ -95,7 +96,7 @@ def fetch_with_retry(func):
                     },
                 )
                 if attempt < 2:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2 ** attempt + random.uniform(0, 1))
                 else:
                     raise
             except requests.exceptions.RequestException as e:
@@ -109,7 +110,7 @@ def fetch_with_retry(func):
                     },
                 )
                 if attempt < 2:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2 ** attempt + random.uniform(0, 1))
                 else:
                     raise
     return wrapper
