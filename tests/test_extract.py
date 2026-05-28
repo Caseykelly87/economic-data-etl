@@ -155,6 +155,35 @@ def test_fetch_with_retry_fast_fails_on_4xx(monkeypatch):
     assert call_count == 1, "4xx must not be retried"
 
 
+def test_fetch_with_retry_applies_jitter_to_backoff(monkeypatch):
+    """Backoff sleep must equal 2**attempt + the jittered offset on each retry.
+
+    Business-correctness: asserts the jitter term is actually summed into
+    the sleep duration, not just that sleep was called. Guards the backoff
+    formula itself (defensive hygiene against retry-storm pile-up if this
+    code is ever used in parallel), not concurrency that this single-
+    threaded pipeline does not have.
+    """
+    sleep_calls = []
+    monkeypatch.setattr(extract.time, "sleep", lambda s: sleep_calls.append(s))
+    # Deterministic jitter sequence: 0.25 for attempt 0, 0.75 for attempt 1.
+    jitter_values = iter([0.25, 0.75])
+    monkeypatch.setattr(extract.random, "uniform", lambda a, b: next(jitter_values))
+
+    call_count = 0
+
+    @extract.fetch_with_retry
+    def flaky():
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise requests.exceptions.ConnectionError("transient")
+        return "ok"
+
+    assert flaky() == "ok"
+    assert sleep_calls == [1 + 0.25, 2 + 0.75]
+
+
 def test_fetch_with_retry_retries_on_5xx(monkeypatch):
     """5xx HTTP errors must be retried like other transient failures."""
     monkeypatch.setattr(extract.time, "sleep", lambda _: None)
