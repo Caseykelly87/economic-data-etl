@@ -1,0 +1,7 @@
+# Pin JSON files to LF line endings in the index regardless of platform.
+# Without this, Windows working trees can commit CRLF-stored JSON that
+# then mismatches the LF-stored version on Linux CI checkouts. The
+# detection-quality workflow surfaced this trap; pinning here removes
+# the failure mode at the source. The byte-identity workflow's runtime
+# LF normalization stays as defense-in-depth.
+*.json text eol=lf
