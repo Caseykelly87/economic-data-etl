@@ -1,9 +1,12 @@
 # Exception detection rules for the Knot Shore grocery platform.
 #
-# Bands are deliberately wide because phase 2 does not adjust for
-# day-of-week or seasonal variance. A future baselines phase will
-# provide empirical per-store-date expectations; at that point these
-# static bands can be narrowed or replaced.
+# The value bands carry no day-of-week or seasonal adjustment, so each
+# band has to span a store's natural daily variance over the whole
+# window or it floods false positives on ordinary high-traffic days.
+# The widths below are set from the measured envelope of the canonical
+# negative universe (see each rule's comment), not from round numbers.
+# A future seasonal-baseline rule could replace these static widths with
+# empirical per-store-date expectations and tighten them considerably.
 #
 # Per-profile bands key off dim_stores.trade_area_profile. The three
 # profiles below are the canonical set from the live sim engine seed
@@ -12,8 +15,13 @@
 rules:
   revenue_band:
     enabled: true
-    band_pct: 0.25
-    # expected value comes from dim_stores.base_daily_revenue
+    band_pct: 0.60
+    # expected value comes from dim_stores.base_daily_revenue.
+    # Natural total_sales / base_daily_revenue over the negative
+    # universe spans roughly [0.79, 1.58] across the two-year window
+    # (weekend, holiday, and payday peaks drive the high tail). ±0.60
+    # clears that envelope so only gross excursions fire; the old ±0.25
+    # band was the single largest false-positive source.
 
   labor_pct_band:
     enabled: true
@@ -31,14 +39,26 @@ rules:
 
   transactions_band:
     enabled: true
-    band_pct: 0.25
-    # expected count = dim_stores.base_daily_revenue / avg_ticket_band.center_for_profile
+    band_pct: 0.45
+    # expected count = dim_stores.base_daily_revenue / avg_ticket_band.center_for_profile.
+    # Natural transaction_count / expected over the negatives spans
+    # roughly [0.78, 1.61] — the same wide envelope as revenue. The high
+    # tail would justify a wider band, but the lower edge is deliberately
+    # held at 0.55 (±0.45) so a store-day whose transactions collapse to
+    # about half of normal still fires; a symmetric band can't both clear
+    # the high tail and keep that sensitivity, which is the kind of
+    # asymmetry a seasonal-baseline rule would resolve. A handful of
+    # genuine high-traffic outliers remain flagged, well within budget.
 
   yoy_comp:
     enabled: true
-    ratio_lower: 0.85
-    ratio_upper: 1.25
-    # silently skipped when no T-365 row present in metrics frame
+    ratio_lower: 0.55
+    ratio_upper: 1.40
+    # current / T-365 sales ratio. Natural year-over-year ratio over the
+    # negatives spans roughly [0.61, 1.35]; [0.55, 1.40] clears it. The
+    # old [0.85, 1.25] band fired on ordinary year-over-year growth and
+    # was a large false-positive source. Silently skipped when no T-365
+    # row is present in the metrics frame.
 
   # Rolling-baseline rule. Unlike the bands above whose expected value
   # comes from dim_stores or a profile config, this rule learns its
@@ -66,6 +86,33 @@ rules:
     enabled: true
     expected_row_count: 10
     detect_duplicates: true
+    severity_level: warning
+
+  # Gross-margin rule. Margin lives only at department grain, so this
+  # rule reads the department frame and fires a store-day when any of its
+  # departments has a gross_margin_pct outside center ± half_width. The
+  # band [0.15, 0.62] sits outside the natural department-margin envelope
+  # (roughly [0.26, 0.55] across the canonical) with headroom on both
+  # sides: nothing legitimate runs below ~15% (that implies COGS above
+  # 85% of net sales) or above ~62%, while the injected outliers sit at
+  # 0.95 (COGS ~5% of net) and negative (COGS exceeding net). Severity
+  # reuses the band ladder via severity_score = distance / half_width.
+  # Skipped entirely when no department frame is supplied.
+  gross_margin_band:
+    enabled: true
+    center: 0.385
+    half_width: 0.235
+
+  # Cross-grain reconciliation rule. Reads both grains: a store-day fires
+  # when its department net_sales sum differs from the store-grain
+  # total_sales by more than `tolerance` dollars. In clean data the two
+  # grains agree to floating-point precision (largest residual ~1e-11),
+  # and the smallest injected breach is ~$50, so $1.00 absorbs currency
+  # rounding without masking any injected mismatch. Skipped entirely when
+  # no department frame is supplied.
+  department_reconciliation:
+    enabled: true
+    tolerance: 1.00
     severity_level: warning
 
 severity:

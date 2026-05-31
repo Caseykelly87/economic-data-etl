@@ -106,7 +106,15 @@ The load-bearing logic and the tests that hold it.
   `department_coverage` structural-integrity rule: it reads the
   department-grain frame and flags store-days whose department row
   count departs from the ten-department baseline or that carry a
-  duplicated `department_id`.
+  duplicated `department_id`. Two more department-grain rules live in
+  the same file: `gross_margin_band` flags a store-day when any of its
+  departments has a `gross_margin_pct` outside the configured band
+  (asserted with a hand-built high-margin outlier, a negative margin, an
+  in-band no-fire, and the worst-department selection when two are out of
+  band), and `department_reconciliation` flags a store-day when its
+  department `net_sales` sum diverges from the store-grain `total_sales`
+  by more than the dollar tolerance (asserted with a balanced no-fire, a
+  $100 break that fires, and a sub-dollar break the tolerance absorbs).
 - **Anomaly flagging output** — `test_detect_cli.py`,
   `test_detect_integration.py`. The anomalous fixture fires its expected
   `(date, store_id, rule_id)` set; the happy fixture fires nothing; the
@@ -174,14 +182,18 @@ nowhere else": `test_detect_structural_contract.py` reads the committed
 canonical, asserts the rule fires on exactly the 52 irregular
 store-days, and asserts the missing-department and duplicated-department
 cases stay distinguishable by their flagged row count (9 versus 11). It
-also pins the regenerated `anomaly_flags.parquet` at 894 rows — the 52
-structural flags, the 831 unchanged statistical-band flags, and the 11
-`revenue_zscore_28d` rolling-baseline flags the new rule adds.
+also pins the regenerated `anomaly_flags.parquet` at 178 rows — 52
+`department_coverage` flags, 72 `department_reconciliation` flags, 24
+`gross_margin_band` flags, and 30 store-day flags from the value and
+rolling rules (18 `transactions_band`, 1 `yoy_comp`, 11
+`revenue_zscore_28d`). `revenue_band`, `labor_pct_band`, and
+`avg_ticket_band` fire nothing on the canonical once the bands are
+widened to the natural-variance envelope.
 
 ## Test categories observed
 
 Categorization snapshot taken when the suite held 246 tests. The suite
-is now at 271; the 25 added tests since the snapshot have not been
+is now at 286; the 40 added tests since the snapshot have not been
 graded under the business/structural/ceremony split, so the table below
 is a dated point-in-time record rather than a current breakdown. The
 suite at the start of the pass that produced the snapshot held 243

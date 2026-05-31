@@ -22,20 +22,30 @@ against a learned per-store baseline instead of a configured band:
 * ``revenue_zscore_28d`` — z-score of ``total_sales`` against the
   trailing 28-day rolling mean and stddev for the store
 
-One structural-integrity rule evaluates per store-day against the
-department-grain ``department_daily_metrics`` frame, when that frame is
-supplied:
+Three rules evaluate per store-day against the department-grain
+``department_daily_metrics`` frame, when that frame is supplied. Margin
+and the cross-grain sales total live only at department grain, so these
+rules bridge to store-day grain by grouping the department frame on
+``(date, store_id)`` rather than reading the store-day band frame:
 
 * ``department_coverage`` — department row count not equal to
   ``expected_row_count``, or a ``department_id`` repeated within a
   store-day
+* ``gross_margin_band`` — any department's ``gross_margin_pct`` outside
+  ``center ± half_width``; one flag per store-day carrying the single
+  most extreme department
+* ``department_reconciliation`` — the sum of a store-day's department
+  ``net_sales`` differs from the store-grain ``total_sales`` by more
+  than ``tolerance`` dollars
 
 Severity bucketing for the band rules: ``info`` if score ≤ ``info_max``,
 ``warning`` if score ≤ ``warning_max``, else ``critical``. Score is the
 distance past the nearer band edge expressed in band-half-widths. The
+``gross_margin_band`` rule reuses this ladder. The
 ``revenue_zscore_28d`` rule uses its own bucketing on ``|z|`` itself
-(``info`` 2.5–3, ``warning`` 3–4, ``critical`` ≥ 4). The structural
-rule does not produce a graded score; it emits the fixed severity
+(``info`` 2.5–3, ``warning`` 3–4, ``critical`` ≥ 4). The
+``department_coverage`` and ``department_reconciliation`` structural
+rules do not produce a graded score; each emits the fixed severity
 declared in its config.
 """
 
@@ -133,10 +143,13 @@ def run_all_rules(
     """Evaluate every enabled rule and return the combined anomaly flags.
 
     The statistical-band rules run against ``metrics_df`` (store-day
-    grain). The ``department_coverage`` structural rule runs against
+    grain). The ``department_coverage``, ``gross_margin_band``, and
+    ``department_reconciliation`` rules run against
     ``department_metrics_df`` (store-day-department grain) when that frame
-    is supplied; when it is ``None`` the rule is skipped, leaving the
-    band-rule output unchanged.
+    is supplied; when it is ``None`` they are skipped, leaving the
+    band-rule output unchanged. ``department_reconciliation`` additionally
+    needs the store-day frame to compare the two grains, so it receives the
+    enriched store-day frame alongside the department frame.
 
     Returns a DataFrame whose columns are exactly
     :data:`ANOMALY_FLAG_COLUMNS`, sorted by ``(date, store_id, rule_id)``.
@@ -182,6 +195,18 @@ def run_all_rules(
     dept_cfg = rules_cfg.get("department_coverage", {})
     if dept_cfg.get("enabled", False) and department_metrics_df is not None:
         flags.extend(_department_coverage(department_metrics_df, dept_cfg))
+
+    margin_cfg = rules_cfg.get("gross_margin_band", {})
+    if margin_cfg.get("enabled", False) and department_metrics_df is not None:
+        flags.extend(
+            _gross_margin_band(department_metrics_df, margin_cfg, severity_cfg)
+        )
+
+    recon_cfg = rules_cfg.get("department_reconciliation", {})
+    if recon_cfg.get("enabled", False) and department_metrics_df is not None:
+        flags.extend(
+            _department_reconciliation(enriched, department_metrics_df, recon_cfg)
+        )
 
     return _flags_to_frame(flags)
 
@@ -470,11 +495,137 @@ def _department_coverage(
     return flags
 
 
+def _gross_margin_band(
+    department_metrics_df: pd.DataFrame, rule_cfg: dict, severity_cfg: dict,
+) -> list[dict]:
+    """Flag store-days carrying a department gross-margin outlier.
+
+    Gross margin exists only at department grain, so this rule evaluates
+    the department-grain frame one group per ``(date, store_id)`` — the
+    same grain-bridging shape as :func:`_department_coverage` — rather than
+    the store-day band frame. A store-day fires when any of its departments
+    has a ``gross_margin_pct`` outside ``center ± half_width``.
+
+    One flag is emitted per offending store-day, carrying the single most
+    extreme department (the one furthest past a band edge). Aggregating
+    margin to the store-day level first would not work: a single department
+    swinging to a 0.95 margin barely moves the sales-weighted store-day
+    mean, so the outlier has to be caught at the grain it occurs on.
+
+    ``severity_score = distance_past_edge / half_width`` reuses the band
+    rules' ladder, so margin flags bucket into the same info / warning /
+    critical levels through ``severity_cfg``.
+    """
+    if department_metrics_df is None or len(department_metrics_df) == 0:
+        return []
+
+    center = float(rule_cfg["center"])
+    half_width = float(rule_cfg["half_width"])
+    low = center - half_width
+    high = center + half_width
+
+    flags: list[dict] = []
+    for (d, store_id), group in department_metrics_df.groupby(
+        ["date", "store_id"], sort=True,
+    ):
+        worst_margin: float | None = None
+        worst_distance = 0.0
+        for margin in group["gross_margin_pct"]:
+            if margin is None or _isnan(margin):
+                continue
+            m = float(margin)
+            if low <= m <= high:
+                continue
+            distance = (low - m) if m < low else (m - high)
+            if worst_margin is None or distance > worst_distance:
+                worst_margin = m
+                worst_distance = distance
+        if worst_margin is None:
+            continue
+        score = worst_distance / half_width if half_width > 0 else float("inf")
+        flags.append({
+            "date": d,
+            "store_id": int(store_id),
+            "rule_id": "gross_margin_band",
+            "actual_value": worst_margin,
+            "expected_low": low,
+            "expected_high": high,
+            "distance_from_band": worst_distance,
+            "severity_score": score,
+            "severity_level": _severity(score, severity_cfg),
+        })
+    return flags
+
+
+def _department_reconciliation(
+    enriched: pd.DataFrame, department_metrics_df: pd.DataFrame, rule_cfg: dict,
+) -> list[dict]:
+    """Flag store-days whose department net_sales do not sum to the store total.
+
+    A cross-grain integrity check: a store-day's ``total_sales`` must equal
+    the sum of its department-grain ``net_sales``. The sim engine derives
+    the store total from department detail, so in clean data the two grains
+    agree to floating-point precision (the largest residual across
+    well-formed store-days is on the order of 1e-11). A store-day fires when
+    the absolute difference exceeds ``tolerance`` dollars.
+
+    Tolerance choice: the smallest injected integrity breach shifts a
+    department's ``net_sales`` by about $50, while legitimate residual is
+    sub-cent rounding from aggregating two-decimal currency values. A $1.00
+    default sits well inside that gap — wide enough to absorb rounding,
+    tight enough that no injected mismatch slips through.
+
+    Structural like :func:`_department_coverage`: the violation is binary,
+    so ``severity_score`` is a fixed 1.0 and ``severity_level`` comes from
+    config. ``actual_value`` carries the department sum and
+    ``expected_low`` / ``expected_high`` the store total, so the direction
+    and size of the mismatch stay legible. Skipped cleanly when no
+    department frame is supplied.
+    """
+    if department_metrics_df is None or len(department_metrics_df) == 0:
+        return []
+
+    tolerance = float(rule_cfg.get("tolerance", 1.0))
+    severity_level = str(rule_cfg.get("severity_level", "warning"))
+
+    store_totals: dict[tuple[date, int], float] = {
+        (row.date, int(row.store_id)): float(row.total_sales)
+        for row in enriched.itertuples(index=False)
+    }
+
+    dept_sums = department_metrics_df.groupby(
+        ["date", "store_id"], sort=True,
+    )["net_sales"].sum()
+
+    flags: list[dict] = []
+    for (d, store_id), dept_sum in dept_sums.items():
+        store_total = store_totals.get((d, int(store_id)))
+        if store_total is None:
+            continue
+        dept_sum = float(dept_sum)
+        residual = abs(store_total - dept_sum)
+        if residual <= tolerance:
+            continue
+        flags.append({
+            "date": d,
+            "store_id": int(store_id),
+            "rule_id": "department_reconciliation",
+            "actual_value": dept_sum,
+            "expected_low": store_total,
+            "expected_high": store_total,
+            "distance_from_band": residual,
+            "severity_score": 1.0,
+            "severity_level": severity_level,
+        })
+    return flags
+
+
 # The dispatch table covers the rules that evaluate against the
 # store-day metrics frame: the five statistical-band rules plus the
-# rolling-baseline z-score rule. The structural ``department_coverage``
-# rule has a different input frame and is invoked directly by
-# :func:`run_all_rules`.
+# rolling-baseline z-score rule. The structural ``department_coverage``,
+# ``gross_margin_band``, and ``department_reconciliation`` rules read the
+# department-grain frame (the last also the store-day frame) and are
+# invoked directly by :func:`run_all_rules`.
 _RULE_FUNCS: dict[str, Callable[..., list[dict]]] = {
     "revenue_band":       _revenue_band,
     "labor_pct_band":     _labor_pct_band,
