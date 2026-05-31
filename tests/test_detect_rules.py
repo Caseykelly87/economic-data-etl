@@ -115,6 +115,8 @@ def test_load_rules_config_unknown_profile_raises(tmp_path):
         "  yoy_comp: { enabled: false }\n"
         "  revenue_zscore_28d: { enabled: false }\n"
         "  department_coverage: { enabled: false }\n"
+        "  gross_margin_band: { enabled: false }\n"
+        "  department_reconciliation: { enabled: false }\n"
         "severity: { info_max: 1.0, warning_max: 2.0 }\n",
         encoding="utf-8",
     )
@@ -226,8 +228,9 @@ def test_revenue_band_in_band_no_flag(sample_dim_stores_df, detection_rules_conf
 def test_revenue_band_just_outside_lower_edge_info_severity(
     sample_dim_stores_df, detection_rules_config
 ):
-    # base 95000, lower band 71250, half_width 23750. 1% past edge → info.
-    rows = [_metric_row(date(2024, 6, 15), 1, 71000.0, 1868, 0.105)]
+    # base 95000, band ±0.60 → lower edge 38000, half_width 57000.
+    # 37000 is 1000 past the edge → score 0.018 → info.
+    rows = [_metric_row(date(2024, 6, 15), 1, 37000.0, 974, 0.105)]
     result = detect_rules.run_all_rules(
         _metrics_df(rows), sample_dim_stores_df, detection_rules_config
     )
@@ -239,9 +242,11 @@ def test_revenue_band_just_outside_lower_edge_info_severity(
 def test_revenue_band_far_outside_critical_severity(
     sample_dim_stores_df, detection_rules_config
 ):
-    # base 95000, lower band 71250, half_width 23750. score > 2 needs distance > 47500
-    # so total_sales < 23750. Use 10000.
-    rows = [_metric_row(date(2024, 6, 15), 1, 10000.0, 263, 0.105)]
+    # base 95000, band ±0.60 → upper edge 152000, half_width 57000. score > 2
+    # needs distance > 114000, i.e. total_sales > 266000. Use 270000.
+    # (With the wide band the lower edge sits at 38000, so even total_sales
+    # of 0 lands at score 0.67 — only a high-side excursion reaches critical.)
+    rows = [_metric_row(date(2024, 6, 15), 1, 270000.0, 7105, 0.105)]
     result = detect_rules.run_all_rules(
         _metrics_df(rows), sample_dim_stores_df, detection_rules_config
     )
@@ -254,15 +259,15 @@ def test_revenue_band_far_outside_critical_severity(
 def test_revenue_band_actual_above_upper_edge_fires(
     sample_dim_stores_df, detection_rules_config
 ):
-    # base 95000, upper band 118750. 130000 is above → fires.
-    rows = [_metric_row(date(2024, 6, 15), 1, 130000.0, 3421, 0.105)]
+    # base 95000, band ±0.60 → upper edge 152000. 160000 is above → fires.
+    rows = [_metric_row(date(2024, 6, 15), 1, 160000.0, 4210, 0.105)]
     result = detect_rules.run_all_rules(
         _metrics_df(rows), sample_dim_stores_df, detection_rules_config
     )
     flags = result[result["rule_id"] == "revenue_band"]
     assert len(flags) == 1
-    assert flags["actual_value"].iloc[0] == pytest.approx(130000.0)
-    assert flags["distance_from_band"].iloc[0] == pytest.approx(11250.0)
+    assert flags["actual_value"].iloc[0] == pytest.approx(160000.0)
+    assert flags["distance_from_band"].iloc[0] == pytest.approx(8000.0)
 
 
 # ==============================================================================
@@ -358,7 +363,7 @@ def test_avg_ticket_band_skipped_when_total_sales_zero(
 def test_transactions_band_in_band_no_flag(
     sample_dim_stores_df, detection_rules_config
 ):
-    # store 7: base 55000 / avg_ticket 32 = 1718.75; band [1289, 2148].
+    # store 7: base 55000 / avg_ticket 32 = 1718.75; band ±0.45 → [945, 2490].
     rows = [_metric_row(date(2024, 6, 15), 7, 50600.0, 1581, 0.120)]
     result = detect_rules.run_all_rules(
         _metrics_df(rows), sample_dim_stores_df, detection_rules_config
@@ -369,7 +374,7 @@ def test_transactions_band_in_band_no_flag(
 def test_transactions_band_below_lower_edge_fires(
     sample_dim_stores_df, detection_rules_config
 ):
-    # store 7 expected 1718.75, band [1289, 2148]. 600 way below.
+    # store 7 expected 1718.75, band ±0.45 → [945, 2490]. 600 way below.
     rows = [_metric_row(date(2024, 6, 15), 7, 50600.0, 600, 0.120)]
     result = detect_rules.run_all_rules(
         _metrics_df(rows), sample_dim_stores_df, detection_rules_config
@@ -426,7 +431,7 @@ def test_yoy_comp_in_range_no_flag(
 def test_yoy_comp_below_threshold_fires(
     sample_dim_stores_df, detection_rules_config
 ):
-    """Prior 100000, current 50000 → ratio 0.5 < 0.85."""
+    """Prior 100000, current 50000 → ratio 0.5 < 0.55."""
     rows = [
         _metric_row(date(2024, 6, 15), 1, 100000.0, 2632, 0.105),
         _metric_row(date(2025, 6, 14), 1, 87400.0, 2300, 0.105),
@@ -443,7 +448,7 @@ def test_yoy_comp_below_threshold_fires(
 def test_yoy_comp_above_threshold_fires(
     sample_dim_stores_df, detection_rules_config
 ):
-    """Prior 50000, current 100000 → ratio 2.0 > 1.25."""
+    """Prior 50000, current 100000 → ratio 2.0 > 1.40."""
     rows = [
         _metric_row(date(2024, 6, 15), 1, 50000.0, 1316, 0.105),
         _metric_row(date(2025, 6, 15), 1, 100000.0, 2632, 0.105),
@@ -613,6 +618,219 @@ def test_department_coverage_output_matches_anomaly_flag_schema(
 
 
 # ==============================================================================
+# gross_margin_band
+# ==============================================================================
+
+
+def test_gross_margin_band_high_outlier_fires_warning(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """A department at a 0.95 gross margin — the injected high-margin shape
+    — fires one warning flag for its store-day.
+
+    Business-correctness: the band is center 0.385 ± 0.235, so the upper
+    edge is 0.62. distance = 0.95 - 0.62 = 0.33 and severity_score =
+    0.33 / 0.235 = 1.404, which lands in the warning bucket (1 < score ≤ 2).
+    The fired flag and its hand-computed score are both asserted.
+    """
+    high = 0.385 + 0.235
+    rows = _ten_departments(date(2024, 6, 15), 1)
+    rows[2]["gross_margin_pct"] = 0.95
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    flags = result[result["rule_id"] == "gross_margin_band"]
+    assert len(flags) == 1
+    flag = flags.iloc[0]
+    assert flag["store_id"] == 1
+    assert flag["actual_value"] == pytest.approx(0.95)
+    assert flag["expected_high"] == pytest.approx(high)
+    assert flag["distance_from_band"] == pytest.approx(0.95 - high)
+    assert flag["severity_score"] == pytest.approx((0.95 - high) / 0.235)
+    assert flag["severity_level"] == "warning"
+
+
+def test_gross_margin_band_negative_margin_fires(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """A department at a negative gross margin — the injected
+    COGS-exceeds-sales shape — fires below the band's lower edge.
+
+    Business-correctness: lower edge 0.385 - 0.235 = 0.15. A -0.20 margin
+    sits 0.35 below it; the flag's actual_value and the lower-edge
+    distance are hand-derived from the configured band.
+    """
+    low = 0.385 - 0.235
+    rows = _ten_departments(date(2024, 6, 15), 1)
+    rows[4]["gross_margin_pct"] = -0.20
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    flags = result[result["rule_id"] == "gross_margin_band"]
+    assert len(flags) == 1
+    flag = flags.iloc[0]
+    assert flag["actual_value"] == pytest.approx(-0.20)
+    assert flag["expected_low"] == pytest.approx(low)
+    assert flag["distance_from_band"] == pytest.approx(low - (-0.20))
+
+
+def test_gross_margin_band_inside_band_no_flag(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """Every department inside [0.15, 0.62], including values near both
+    edges, leaves the store-day clean.
+
+    Business-correctness: 0.20 and 0.55 are inside the band, so no margin
+    flag is emitted — confirming the rule does not fire on natural margin
+    variance.
+    """
+    rows = _ten_departments(date(2024, 6, 15), 1)
+    rows[0]["gross_margin_pct"] = 0.20
+    rows[1]["gross_margin_pct"] = 0.55
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    assert (result["rule_id"] == "gross_margin_band").sum() == 0
+
+
+def test_gross_margin_band_one_flag_per_store_day_picks_worst(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """When two departments are out of band, the store-day yields a single
+    flag carrying the one furthest past an edge.
+
+    Business-correctness: 0.95 sits 0.33 above the upper edge while -0.20
+    sits 0.35 below the lower edge; the larger distance wins, so the flag's
+    actual_value is -0.20 and exactly one flag is emitted for the store-day.
+    """
+    rows = _ten_departments(date(2024, 6, 15), 1)
+    rows[2]["gross_margin_pct"] = 0.95
+    rows[7]["gross_margin_pct"] = -0.20
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    flags = result[result["rule_id"] == "gross_margin_band"]
+    assert len(flags) == 1
+    assert flags.iloc[0]["actual_value"] == pytest.approx(-0.20)
+
+
+def test_gross_margin_band_skipped_without_department_frame(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """With no department frame supplied the rule contributes nothing —
+    margin lives only at department grain.
+
+    Ceremony: confirms the skip path raises nothing and emits no flag, the
+    same skip contract department_coverage carries.
+    """
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+    )
+    assert (result["rule_id"] == "gross_margin_band").sum() == 0
+
+
+# ==============================================================================
+# department_reconciliation
+# ==============================================================================
+
+
+def _balanced_departments(d: date, store_id: int, store_total: float) -> list[dict]:
+    """Ten department rows whose net_sales sum exactly to ``store_total``."""
+    rows = _ten_departments(d, store_id)
+    share = store_total / len(rows)
+    for r in rows:
+        r["net_sales"] = share
+    return rows
+
+
+# sample_metrics_df sets every store-day to base_daily_revenue * 0.92;
+# store 1's base is 95000, so its 2024-06-15 total_sales is 87400.0.
+_STORE_1_TOTAL = 95000.0 * 0.92
+
+
+def test_department_reconciliation_balanced_no_flag(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """Department net_sales that sum to the store total leave the store-day
+    clean.
+
+    Business-correctness: ten departments of 8740.0 sum to 87400.0, which
+    equals store 1's store-day total_sales, so the residual is zero and no
+    reconciliation flag is emitted.
+    """
+    rows = _balanced_departments(date(2024, 6, 15), 1, _STORE_1_TOTAL)
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    assert (result["rule_id"] == "department_reconciliation").sum() == 0
+
+
+def test_department_reconciliation_mismatch_beyond_tolerance_fires(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """A $100 break between the department sum and the store total fires one
+    flag with the residual carried as the distance.
+
+    Business-correctness: adding 100.0 to one department makes the
+    department sum 87500.0 against a store total of 87400.0 — a residual of
+    100.0, well past the $1.00 tolerance. actual_value carries the
+    department sum, expected_low/high the store total, and severity is the
+    structural fixed warning.
+    """
+    rows = _balanced_departments(date(2024, 6, 15), 1, _STORE_1_TOTAL)
+    rows[0]["net_sales"] += 100.0
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    flags = result[result["rule_id"] == "department_reconciliation"]
+    assert len(flags) == 1
+    flag = flags.iloc[0]
+    assert flag["store_id"] == 1
+    assert flag["actual_value"] == pytest.approx(_STORE_1_TOTAL + 100.0)
+    assert flag["expected_low"] == pytest.approx(_STORE_1_TOTAL)
+    assert flag["expected_high"] == pytest.approx(_STORE_1_TOTAL)
+    assert flag["distance_from_band"] == pytest.approx(100.0)
+    assert flag["severity_score"] == pytest.approx(1.0)
+    assert flag["severity_level"] == "warning"
+
+
+def test_department_reconciliation_within_tolerance_no_flag(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """A sub-dollar residual is absorbed by the tolerance.
+
+    Business-correctness: a 0.50 break (below the $1.00 tolerance) is the
+    kind of rounding the rule must ignore, so no flag is emitted.
+    """
+    rows = _balanced_departments(date(2024, 6, 15), 1, _STORE_1_TOTAL)
+    rows[0]["net_sales"] += 0.50
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+        department_metrics_df=_dept_df(rows),
+    )
+    assert (result["rule_id"] == "department_reconciliation").sum() == 0
+
+
+def test_department_reconciliation_skipped_without_department_frame(
+    sample_metrics_df, sample_dim_stores_df, detection_rules_config
+):
+    """With no department frame the cross-grain rule contributes nothing.
+
+    Ceremony: confirms the skip path raises nothing and emits no flag.
+    """
+    result = detect_rules.run_all_rules(
+        sample_metrics_df, sample_dim_stores_df, detection_rules_config,
+    )
+    assert (result["rule_id"] == "department_reconciliation").sum() == 0
+
+
+# ==============================================================================
 # severity scoring math
 # ==============================================================================
 
@@ -621,15 +839,15 @@ def test_severity_score_equals_distance_over_band_half_width(
     sample_dim_stores_df, detection_rules_config
 ):
     # Construct revenue_band breach with known math.
-    # base 95000, band [71250, 118750], half_width 23750.
-    # actual 50000 → distance 21250 → score 21250/23750 = 0.8947
-    rows = [_metric_row(date(2024, 6, 15), 1, 50000.0, 1316, 0.105)]
+    # base 95000, band ±0.60 → [38000, 152000], half_width 57000.
+    # actual 30000 → distance 8000 → score 8000/57000 = 0.1404
+    rows = [_metric_row(date(2024, 6, 15), 1, 30000.0, 789, 0.105)]
     result = detect_rules.run_all_rules(
         _metrics_df(rows), sample_dim_stores_df, detection_rules_config
     )
     flag = result[result["rule_id"] == "revenue_band"].iloc[0]
-    assert flag["distance_from_band"] == pytest.approx(21250.0)
-    assert flag["severity_score"] == pytest.approx(21250.0 / 23750.0)
+    assert flag["distance_from_band"] == pytest.approx(8000.0)
+    assert flag["severity_score"] == pytest.approx(8000.0 / 57000.0)
     assert flag["severity_level"] == "info"
 
 

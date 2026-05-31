@@ -215,17 +215,19 @@ python -m src.detect_cli \
 
 Output: `data/processed/anomaly_flags.parquet` with one row per fired rule, sorted deterministically by `(date, store_id, rule_id)`. Schema is exactly `(date, store_id, rule_id, actual_value, expected_low, expected_high, distance_from_band, severity_score, severity_level)`.
 
-#### The seven rules
+#### The nine rules
 
 Five statistical-band rules check whether a store-day value sits inside an expected band:
 
 | rule_id | Checks | Band |
 |---|---|---|
-| `revenue_band` | `total_sales` vs `base_daily_revenue` | ± 25% |
+| `revenue_band` | `total_sales` vs `base_daily_revenue` | ± 60% |
 | `labor_pct_band` | `labor_cost_pct` vs profile center | ± 5pp around profile center |
 | `avg_ticket_band` | `avg_basket_size` vs profile center | ± 20% around profile center |
-| `transactions_band` | `transaction_count` vs `base / avg_ticket_center` | ± 25% |
-| `yoy_comp` | current/T-365 sales ratio | ratio outside `[0.85, 1.25]` |
+| `transactions_band` | `transaction_count` vs `base / avg_ticket_center` | ± 45% |
+| `yoy_comp` | current/T-365 sales ratio | ratio outside `[0.55, 1.40]` |
+
+The revenue, transactions, and year-over-year widths are set from the measured natural-variance envelope of the canonical negative universe rather than round numbers — daily revenue and transaction counts swing by roughly ±60% across the two-year window, so a tighter band floods false positives on ordinary high-traffic days. `avg_ticket_band` keeps ± 20% because basket size barely varies day to day and the wider value would only dull a useful signal.
 
 Per-profile centers (from the live sim engine seed): `suburban-family` → labor 0.105, ticket $38.00; `urban-dense` → labor 0.115, ticket $28.00; `value-market` → labor 0.120, ticket $32.00.
 
@@ -233,15 +235,19 @@ The sixth rule, `revenue_zscore_28d`, is a rolling-baseline rule rather than a s
 
 The seventh rule, `department_coverage`, is a structural-integrity rule rather than a band. It evaluates the department-grain metrics one group per `(date, store_id)` and flags any store-day whose department row count is not 10, or that carries a duplicated `department_id`.
 
+The eighth rule, `gross_margin_band`, also reads the department-grain frame. Gross margin lives only at department grain, so the rule groups by `(date, store_id)` and fires a store-day when any of its departments has a `gross_margin_pct` outside `0.385 ± 0.235` (i.e. `[0.15, 0.62]`). One flag per store-day carries the single most extreme department; severity reuses the band ladder. Aggregating margin to the store-day level first does not work — one department swinging to a 0.95 margin barely moves the sales-weighted store mean — so the outlier has to be caught at the grain it occurs on.
+
+The ninth rule, `department_reconciliation`, is the only rule that reads both grains. It checks that a store-day's department `net_sales` sum equals the store-grain `total_sales`; the sim engine derives the store total from department detail, so in clean data the two agree to floating-point precision. A store-day fires when the absolute difference exceeds a $1.00 tolerance — wide enough to absorb currency rounding, tight enough to catch the injected integrity breaches (the smallest moves a department by ~$50).
+
 #### Severity
 
-For the five static-band rules, `severity_score = distance_from_band / band_half_width`. Values are bucketed into `info` (score ≤ 1), `warning` (1 < score ≤ 2), and `critical` (> 2). For `revenue_zscore_28d`, `severity_score` is `|z|` itself and the bucket cutoffs are 2.5–3 / 3–4 / ≥ 4 (info / warning / critical). The structural `department_coverage` rule emits a fixed `severity_level` (default `warning`) instead of a graded score. Closed-day rows (`total_sales == 0`) are skipped by `labor_pct_band`, `avg_ticket_band`, and `transactions_band`. `yoy_comp` is silently skipped when no T-365 row is present.
+For the five static-band rules, `severity_score = distance_from_band / band_half_width`. Values are bucketed into `info` (score ≤ 1), `warning` (1 < score ≤ 2), and `critical` (> 2). `gross_margin_band` reuses the same ladder against its margin band. For `revenue_zscore_28d`, `severity_score` is `|z|` itself and the bucket cutoffs are 2.5–3 / 3–4 / ≥ 4 (info / warning / critical). The structural `department_coverage` and `department_reconciliation` rules emit a fixed `severity_level` (default `warning`) instead of a graded score. Closed-day rows (`total_sales == 0`) are skipped by `labor_pct_band`, `avg_ticket_band`, and `transactions_band`. `yoy_comp` is silently skipped when no T-365 row is present.
 
 #### Grain
 
-Detection runs at two grains. The five statistical-band rules and the `revenue_zscore_28d` rolling-baseline rule evaluate `store_daily_metrics` at store-day grain. The `department_coverage` structural-integrity rule evaluates `department_daily_metrics` at department-grain, one group per `(date, store_id)`. Department-grain integrity breaches — a store-day missing a department's row, or carrying a duplicated `department_id` — are detected by `department_coverage` and flagged in `anomaly_flags.parquet`.
+Detection runs at two grains. The five statistical-band rules and the `revenue_zscore_28d` rolling-baseline rule evaluate `store_daily_metrics` at store-day grain. The `department_coverage`, `gross_margin_band`, and `department_reconciliation` rules read `department_daily_metrics` at department grain, grouping one group per `(date, store_id)` to emit store-day flags; `department_reconciliation` additionally reads the store-day frame to compare the two grains. Department-grain issues — a missing or duplicated department row, a margin outlier, or department sales that don't reconcile to the store total — are caught here and flagged in `anomaly_flags.parquet`.
 
-There is no day-of-week or seasonal adjustment in the current rules. Bands are deliberately wide to tolerate weekend and holiday variance without false-positive flooding. A future seasonal-baseline phase could produce empirical per-store-date expected values that a rule refactor would consume in place of static bands.
+There is no day-of-week or seasonal adjustment in the current value bands. Their widths are set from the measured natural-variance envelope so weekend and holiday peaks don't flood false positives; that is why the revenue and transaction bands are wide. A future seasonal-baseline rule could produce empirical per-store-date expected values that a rule refactor would consume in place of the static bands, tightening them considerably.
 
 #### Evaluating detection quality
 
@@ -267,7 +273,7 @@ Four canonical parquet artifacts and one JSON measurement artifact produced by r
 | `store_daily_metrics.parquet` | 2,944 × 6 | 8 stores × 184 days × 2 years (paired-year canonical) |
 | `department_daily_metrics.parquet` | 29,414 × 7 | Same window across 10 departments per store-day |
 | `dim_stores.parquet` | 8 × 10 | One row per store with identification, location, and base_daily_revenue |
-| `anomaly_flags.parquet` | 894 × 9 | 815 info, 78 warning, 1 critical |
+| `anomaly_flags.parquet` | 178 × 9 | 27 info, 150 warning, 1 critical |
 | `detection_quality.json` | — | Recall, false-positive rate, per-anomaly-type recall, and the phase 2 contract verdict measured against the sim engine's ground-truth `anomaly_log.csv`. |
 
 **`store_daily_metrics.parquet`** spans two paired six-month windows: 2024-07-01 through 2024-12-31 and 2025-07-01 through 2025-12-31, each covering all 8 stores. The 2025 window is the demo dataset surfaced by the dashboard; the 2024 window enables year-over-year comparison views consumed by the portal's store drilldown via the API's existing `start_date` / `end_date` query parameters. Filtering this parquet to the 2025 window yields 1,472 rows. Columns: `date`, `store_id`, `total_sales`, `transaction_count`, `avg_basket_size`, `labor_cost_pct`.
@@ -276,7 +282,7 @@ Four canonical parquet artifacts and one JSON measurement artifact produced by r
 
 **`dim_stores.parquet`** is the canonical store reference dataset: 8 rows in `store_id` order. Columns: `store_id`, `store_name`, `address`, `city`, `zip`, `county_fips`, `trade_area_profile`, `sqft`, `open_date`, `base_daily_revenue`. Only `store_id` is type-coerced (to `int64`); other columns pass through as pandas reads them — `zip`, `county_fips`, `sqft` are `int64`; `open_date` is a string in `YYYY-MM-DD` form; `base_daily_revenue` is `float64`.
 
-**`anomaly_flags.parquet`** is the `detect_cli` output: the five statistical-band rules and `revenue_zscore_28d` run against the store-day metrics, and the `department_coverage` structural rule runs against the department metrics. Detection runs across both the 2024 and 2025 windows; the `yoy_comp` rule fires only where a prior-year baseline exists, and `revenue_zscore_28d` fires only after a store has at least 14 prior observations. Of the 894 rows, 831 are static-band flags, 52 are structural flags, and 11 are rolling-baseline flags.
+**`anomaly_flags.parquet`** is the `detect_cli` output: the five statistical-band rules and `revenue_zscore_28d` run against the store-day metrics, while `department_coverage`, `gross_margin_band`, and `department_reconciliation` run against the department metrics. Detection runs across both the 2024 and 2025 windows; the `yoy_comp` rule fires only where a prior-year baseline exists, and `revenue_zscore_28d` fires only after a store has at least 14 prior observations. Of the 178 rows, 124 are department-grain flags (52 `department_coverage`, 72 `department_reconciliation`), 24 are `gross_margin_band` flags, and 30 are store-day value-and-rolling flags (18 `transactions_band`, 1 `yoy_comp`, 11 `revenue_zscore_28d`). With the value bands widened to the natural-variance envelope, `revenue_band`, `labor_pct_band`, and `avg_ticket_band` fire nothing on the canonical.
 
 **`detection_quality.json`** is the output of `scripts/evaluate_detection.py` against the canonical parquets and the sim engine's ground-truth anomaly log. It captures global recall, false-positive rate, per-anomaly-type recall, and the counts behind them in a stable shape downstream consumers can render directly — the API exposes it at `/insights/detection-quality` and the portal renders the verdict on an about-page. The script that produces these numbers is isolated from `src/` by social contract: only `scripts/evaluate_detection.py` reads the ground-truth log, so the JSON is a real measurement rather than an answer-key lookup.
 

@@ -38,16 +38,26 @@ EXPECTED_MISSING = 39
 EXPECTED_DUPLICATE = 13
 EXPECTED_STRUCTURAL = EXPECTED_MISSING + EXPECTED_DUPLICATE  # 52
 
-# Per-rule flag counts in the committed canonical. The first three are
-# the statistical-band rules whose totals pre-date the structural rule;
-# `revenue_zscore_28d` is the rolling-baseline rule that fires per its
-# learned per-store window. The totals here are the canonical figures
-# the file pins — any regeneration that shifts them needs a matching
-# update here (and downstream in README + __TESTING_NOTES.md).
+# The two department-grain rules that fire on the canonical alongside
+# department_coverage. gross_margin_band flags store-days with a margin
+# outlier department; department_reconciliation flags store-days whose
+# department net_sales do not sum to the store total (which catches both
+# the injected integrity breaches and, as a side effect, the missing /
+# duplicated-department store-days, hence a count above the 59 injected
+# integrity breaches).
+EXPECTED_MARGIN = 24
+EXPECTED_RECONCILIATION = 72
+
+# Non-structural flag counts in the committed canonical: the value bands
+# that still fire after their widths were widened to the natural-variance
+# envelope, plus the rolling-baseline z-score rule. revenue_band,
+# labor_pct_band, and avg_ticket_band fire zero on the canonical and are
+# omitted. The totals here are the canonical figures the file pins — any
+# regeneration that shifts them needs a matching update here (and
+# downstream in README + __TESTING_NOTES.md).
 EXPECTED_BAND_FLAGS = {
-    "revenue_band": 297,
-    "transactions_band": 345,
-    "yoy_comp": 189,
+    "transactions_band": 18,
+    "yoy_comp": 1,
     "revenue_zscore_28d": 11,
 }
 
@@ -117,6 +127,13 @@ def test_committed_anomaly_flags_carries_structural_findings():
 
     assert tuple(flags.columns) == ANOMALY_FLAG_COLUMNS
     assert counts["department_coverage"] == EXPECTED_STRUCTURAL
+    assert counts["gross_margin_band"] == EXPECTED_MARGIN
+    assert counts["department_reconciliation"] == EXPECTED_RECONCILIATION
     for rule_id, expected in EXPECTED_BAND_FLAGS.items():
         assert counts[rule_id] == expected
-    assert len(flags) == EXPECTED_STRUCTURAL + sum(EXPECTED_BAND_FLAGS.values())
+    assert len(flags) == (
+        EXPECTED_STRUCTURAL
+        + EXPECTED_MARGIN
+        + EXPECTED_RECONCILIATION
+        + sum(EXPECTED_BAND_FLAGS.values())
+    )
