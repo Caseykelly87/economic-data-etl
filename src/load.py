@@ -148,8 +148,18 @@ def upsert_observations(df: pd.DataFrame, engine) -> dict:
     """
     stats = {"inserted": 0, "updated": 0, "unchanged": 0}
 
-    # NOTE: loads the full table into memory for comparison.
-    # Acceptable for small datasets; revisit if row counts grow large.
+    # Diffs incoming rows against the full fact table pulled into memory:
+    # the whole table is read, then iterrows() builds a per-row lookup. Cost
+    # is O(table size) in time and memory on every run, no matter how few
+    # rows are actually new. Correct and fast for the macro series' size
+    # (low thousands of rows). Ceiling: once the fact table reaches the high
+    # tens of thousands to hundreds of thousands of rows, this full-table
+    # read dominates the run, and the fix is a database-side upsert
+    # (INSERT ... ON CONFLICT (series_id, date) DO UPDATE) so Postgres does
+    # the diffing and no full table crosses into Python. The platform's
+    # small-data ceilings are recorded in the API repo at
+    # economic-data-api/docs/scale_and_performance.md; this is the load-side
+    # analogue.
     with engine.connect() as conn:
         existing = pd.read_sql(
             "SELECT series_id, date, value FROM raw.fact_economic_observations", conn
@@ -220,8 +230,15 @@ def upsert_dim_series(df: pd.DataFrame, engine) -> dict:
     """
     stats = {"inserted": 0, "unchanged": 0}
 
-    # NOTE: loads the full table into memory for comparison.
-    # Acceptable for small datasets; revisit if row counts grow large.
+    # Same full-table-read shape as upsert_observations, but a lighter one:
+    # only the series_id column is read, into a set, and the diff is a
+    # vectorized isin rather than a per-row loop. The dim table is bounded by
+    # the number of distinct series (low thousands at most), not by
+    # observation volume, so this read does not grow the way the fact-table
+    # read does. Ceiling and fix are the same in kind (a DB-side INSERT ...
+    # ON CONFLICT (series_id) DO NOTHING, since existing dim rows are never
+    # overwritten), but the trigger is much further off. See
+    # economic-data-api/docs/scale_and_performance.md.
     with engine.connect() as conn:
         existing = pd.read_sql("SELECT series_id FROM raw.dim_series", conn)
 
