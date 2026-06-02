@@ -193,7 +193,7 @@ widened to the natural-variance envelope.
 ## Test categories observed
 
 Categorization snapshot taken when the suite held 246 tests. The suite
-is now at 286; the 40 added tests since the snapshot have not been
+is now at 287; the 41 added tests since the snapshot have not been
 graded under the business/structural/ceremony split, so the table below
 is a dated point-in-time record rather than a current breakdown. The
 suite at the start of the pass that produced the snapshot held 243
