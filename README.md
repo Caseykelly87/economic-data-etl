@@ -7,7 +7,7 @@ A Python ETL repository containing two pipelines that share infrastructure but a
 - **Macro pipeline** — ingests 15 U.S. macroeconomic indicators from FRED and BLS, plus 8 food-category CPI forecast series from USDA ERS, normalizes them into a tidy long-format schema, and upserts them into a SQL database.
 - **Grocery pipeline** — ingests CSV output from the upstream [simulation engine](https://github.com/Caseykelly87/Knot-shore-grocery-simulation-engine), validates schemas, applies detection rules, and produces canonical parquet artifacts that downstream API and portal repositories consume.
 
-Both pipelines share configuration, structured logging, and CI. The repository contains 274 tests covering both, with no live API calls or database connections in the test suite.
+Both pipelines share configuration, structured logging, and CI. The repository contains 287 tests covering both, with no live API calls or database connections in the test suite.
 
 ## Table of contents
 
@@ -100,7 +100,7 @@ python -m src.detect_cli \
 ### Run all tests
 
 ```bash
-python -m pytest -q                            # 274 tests, no live api or db calls
+python -m pytest -q                            # 287 tests, no live api or db calls
 python -m pytest --cov=src                     # with coverage
 python -m pytest tests/test_detect_rules.py    # single file
 ```
@@ -348,7 +348,7 @@ Ad-hoc parquet output produced by running `sim_cli` or `detect_cli` directly (e.
 │   └── detect_cli.py           # Grocery-side cli: canonical -> anomaly flags
 ├── tests/
 │   ├── conftest.py
-│   ├── test_extract.py                    # 32 tests — macro extract + idempotency
+│   ├── test_extract.py                    # 33 tests — macro extract + idempotency
 │   ├── test_transform.py                  # 45 tests — macro transform + edge cases
 │   ├── test_load.py                       # 16 tests — schema, upsert, idempotency
 │   ├── test_main.py                       # 16 tests — macro pipeline orchestration
@@ -360,11 +360,12 @@ Ad-hoc parquet output produced by running `sim_cli` or `detect_cli` directly (e.
 │   ├── test_sim_cli.py                    # 11 tests — grocery cli orchestration
 │   ├── test_sim_integration.py            # 8 tests — end-to-end ingest happy path
 │   ├── test_sim_engine_contract.py        # 3 tests — sim engine output contract
-│   ├── test_detect_rules.py               # 48 tests — rule logic + edge cases
+│   ├── test_detect_rules.py               # 57 tests — rule logic + edge cases
 │   ├── test_detect_cli.py                 # 13 tests — detect cli orchestration
 │   ├── test_detect_integration.py         # 8 tests — end-to-end detection
 │   ├── test_detect_structural_contract.py # 4 tests — structural-integrity rule contract
-│   └── test_build_canonical_fixtures.py   # 7 tests — canonical regeneration script
+│   ├── test_build_canonical_fixtures.py   # 9 tests — canonical regeneration script
+│   └── test_docs_count.py                  # 1 test — readme count vs collected drift guard
 ├── .env                        # API keys — never commit
 ├── .gitignore
 ├── pytest.ini
@@ -452,7 +453,7 @@ On Windows, stdout defaults to cp1252 encoding which can't render some non-ASCII
 ## Testing
 
 ```bash
-python -m pytest -q                              # all 274 tests
+python -m pytest -q                              # all 287 tests
 python -m pytest -v                              # verbose
 python -m pytest --cov=src                       # with coverage
 python -m pytest tests/test_detect_rules.py      # single file
