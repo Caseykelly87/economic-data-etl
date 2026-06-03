@@ -16,7 +16,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Cache pip
         uses: actions/cache@v4
@@ -36,3 +36,14 @@ jobs:
 
       - name: Run pytest
         run: python -m pytest -q --cov=src --cov-report=term-missing --cov-fail-under=90
+
+      # Supply-chain hygiene signal. Audits the installed dependency set
+      # against the Python advisory database. Non-blocking for now so a
+      # transitive medium advisory doesn't wall the build; the result is
+      # still visible as its own step, and a High/Critical finding is the
+      # cue to bump a dependency.
+      - name: Dependency scan (pip-audit)
+        continue-on-error: true
+        run: |
+          python -m pip install pip-audit
+          pip-audit
