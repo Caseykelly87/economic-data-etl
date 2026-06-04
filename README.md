@@ -4,10 +4,10 @@
 
 A Python ETL repository containing two pipelines that share infrastructure but address different data domains:
 
-- **Macro pipeline** — ingests 15 U.S. macroeconomic indicators from FRED and BLS, plus 8 food-category CPI forecast series from USDA ERS, normalizes them into a tidy long-format schema, and upserts them into a SQL database.
+- **Macro pipeline** — ingests 15 U.S. macroeconomic indicators from FRED and BLS, plus 8 food-category CPI forecast series from USDA ERS, normalizes them into a tidy long-format schema, lands them in a `raw` zone, and builds the `staging` and domain-mart layers (`public_analytics.mart_*`) the API serves.
 - **Grocery pipeline** — ingests CSV output from the upstream [simulation engine](https://github.com/Caseykelly87/Knot-shore-grocery-simulation-engine), validates schemas, applies detection rules, and produces canonical parquet artifacts that downstream API and portal repositories consume.
 
-Both pipelines share configuration, structured logging, and CI. The repository contains 287 tests covering both, with no live API calls or database connections in the test suite.
+Both pipelines share configuration, structured logging, and CI. The repository contains 305 tests covering both, with no live API calls or database connections in the test suite.
 
 ## Table of contents
 
@@ -121,7 +121,17 @@ Normalizes raw API responses into typed pandas DataFrames. Source-specific missi
 
 ### Load
 
-Upserts fact and dimension rows via SQLAlchemy. Each row is classified as inserted (new), updated (revision detected), or unchanged (skipped) based on primary key and value comparison. The pipeline reports `{"inserted": N, "updated": N, "unchanged": N}` on every run. Defaults to SQLite at `data/economic_data.db`; swap to Postgres by setting `DATABASE_URL` — no code changes needed.
+Upserts fact and dimension rows into the `raw` zone via SQLAlchemy. Each row is classified as inserted (new), updated (revision detected), or unchanged (skipped) based on primary key and value comparison. The pipeline reports `{"inserted": N, "updated": N, "unchanged": N}` on every run. Defaults to SQLite at `data/economic_data.db`; swap to Postgres by setting `DATABASE_URL` — no code changes needed.
+
+### Staging and marts
+
+After the raw upsert, the load stage builds the rest of the layered warehouse (raw → staging → marts) in `src/marts.py`:
+
+- **`staging.stg_economic_observations`** conforms the raw landing — it carries `series_id`, `series_name`, `value`, and `source`, and exposes the raw text `date` as a typed `observation_date`. It is materialized as a table rather than a view because SQLite (the test dialect) cannot define a view in one attached database that references a table in another; materializing keeps one code path that the SQLite suite exercises identically to Postgres. The whole chain is a deterministic full refresh on every run, so a materialized staging table is always fresh.
+- **`public_analytics.mart_inflation` / `mart_labor_market` / `mart_gdp`** project staging filtered to each domain's series — the subsets the API serves at `/metrics/inflation`, `/metrics/unemployment`, and `/metrics/gdp`. The series → domain routing lives in `MART_DOMAINS` in `src/config.py`, keyed by technical `series_id`.
+- **`public_analytics.mart_economic_summary`** carries the latest observation (`latest_date`, `latest_value`) for every ingested series. It is the no-loss rollup: series that map to no domain mart (consumption, sentiment, the savings and fed-funds rates, the Missouri grocery-sales series, the ERS food-price forecasts) still reach the serving layer here. The API reads it at `/insights/summary`.
+
+The marts build is a full refresh (delete then insert-select from staging), so it is idempotent and safe to re-run with no duplicate rows. Column names and primary keys match the API's SQLAlchemy mart models exactly, so the API reads the produced tables without a schema change.
 
 ### Series catalog
 
@@ -337,7 +347,8 @@ Ad-hoc parquet output produced by running `sim_cli` or `detect_cli` directly (e.
 │   ├── exceptions.py           # SimIngestError, SchemaValidationError, etc.
 │   ├── extract.py              # Macro pipeline FRED/BLS/ERS clients with idempotency
 │   ├── transform.py            # Macro pipeline DataFrame normalization
-│   ├── load.py                 # Macro pipeline schema + upsert
+│   ├── load.py                 # Macro pipeline raw schema + upsert
+│   ├── marts.py                # Macro pipeline staging + domain marts build
 │   ├── main.py                 # Macro pipeline entry point
 │   ├── observability.py        # Shared structlog configurator with stdlib bridge
 │   ├── schemas.py              # Typed records for the grocery-side ingestion
@@ -351,7 +362,8 @@ Ad-hoc parquet output produced by running `sim_cli` or `detect_cli` directly (e.
 │   ├── test_extract.py                    # 33 tests — macro extract + idempotency
 │   ├── test_transform.py                  # 45 tests — macro transform + edge cases
 │   ├── test_load.py                       # 16 tests — schema, upsert, idempotency
-│   ├── test_main.py                       # 16 tests — macro pipeline orchestration
+│   ├── test_marts.py                      # 17 tests — staging/marts build, routing, contract
+│   ├── test_main.py                       # 17 tests — macro pipeline orchestration
 │   ├── test_observability.py              # 3 tests — shared logging configurator
 │   ├── test_sim_ingest.py                 # 16 tests — store-grain csv adapter
 │   ├── test_sim_ingest_department.py      # 12 tests — department-grain csv adapter

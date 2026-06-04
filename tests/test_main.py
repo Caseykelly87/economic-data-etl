@@ -42,6 +42,7 @@ def pipeline_mocks():
          patch("src.main.upsert_observations",     return_value=_LOAD_STATS) as mock_upsert_obs, \
          patch("src.main.upsert_dim_series",       return_value={"inserted": 0, "unchanged": 0}) \
                                                                               as mock_upsert_dim, \
+         patch("src.main.build_marts",             return_value={"staging": 0}) as mock_build_marts, \
          patch("src.main.create_engine")                                      as mock_engine:
         yield {
             "fetch_fred":    mock_fred,
@@ -55,6 +56,7 @@ def pipeline_mocks():
             "ensure_tables": mock_ensure,
             "upsert_obs":    mock_upsert_obs,
             "upsert_dim":    mock_upsert_dim,
+            "build_marts":   mock_build_marts,
             "create_engine": mock_engine,
         }
 
@@ -216,6 +218,20 @@ def test_run_pipeline_calls_upsert_dim_series(pipeline_mocks):
     """upsert_dim_series must be called with the dimension DataFrame."""
     main.run_pipeline()
 
+    pipeline_mocks["upsert_dim"].assert_called_once()
+
+
+def test_run_pipeline_builds_marts_after_upserts(pipeline_mocks):
+    """build_marts must run as the final load step, after the raw upserts.
+
+    Structural: pins the deliberate raw → staging → marts ordering — the
+    marts derive from raw, so they must be built after raw is populated, not
+    before or in place of it.
+    """
+    main.run_pipeline()
+
+    pipeline_mocks["build_marts"].assert_called_once()
+    pipeline_mocks["upsert_obs"].assert_called_once()
     pipeline_mocks["upsert_dim"].assert_called_once()
 
 
