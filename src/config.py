@@ -57,6 +57,40 @@ BLS_SERIES = {
     "WAGE_INDEX": "CIU2020000000000I" # Employment Cost Index
 }
 
+# --- Analytical mart domain routing ---
+# Maps a domain mart to the technical series_ids it projects from staging.
+# Keyed by series_id (the value stored in raw.fact_economic_observations.
+# series_id), not the human-readable config key. The split mirrors the
+# consumer contract the API serves: /metrics/inflation reads CPI and gas
+# prices, /metrics/unemployment reads the unemployment rate and wage series,
+# /metrics/gdp reads real GDP.
+#
+# A series_id absent from every domain here is not dropped: it is still
+# carried into mart_economic_summary, which holds the latest observation for
+# every ingested series. The three domain marts are deliberate subsets of the
+# warehouse the API exposes as named metric routes; the summary is the
+# no-loss rollup across all series (consumption, sentiment, savings, the fed
+# funds rate, the Missouri grocery-sales series, and the ERS food-price
+# forecasts reach the serving layer through the summary, which is the only
+# mart the API populates from every series).
+MART_DOMAINS: dict[str, list[str]] = {
+    "inflation": [
+        "CPIAUCSL",        # CPI, All Urban Consumers (FRED)
+        "CUUR0000SA0",     # Headline CPI (BLS)
+        "CUUR0000SA0L1E",  # Core CPI, ex food/energy (BLS)
+        "APU000074714",    # Avg price: gasoline (BLS)
+    ],
+    "labor_market": [
+        "UNRATE",              # Unemployment rate (FRED)
+        "CES0500000003",       # Avg hourly earnings (BLS)
+        "CIU2020000000000I",   # Employment Cost Index (BLS)
+    ],
+    "gdp": [
+        "GDPC1",  # Real GDP (FRED)
+    ],
+}
+
+
 # --- Metadata Storage ---
 DATA_METADATA_DIR = BASE_DIR / "data" / "metadata"
 

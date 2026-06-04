@@ -17,6 +17,7 @@ from src.transform import (
     combine_fact_tables,
 )
 from src.load import ensure_tables_exist, upsert_observations, upsert_dim_series
+from src.marts import build_marts
 from src.config import (
     FRED_SERIES,
     BLS_SERIES,
@@ -125,13 +126,14 @@ def run_pipeline():
     )
 
     # ------------------------------------------------------------------
-    # Phase 3: Load — upsert DataFrames into the database
+    # Phase 3: Load — upsert into raw, then build staging and the marts
     # ------------------------------------------------------------------
     try:
         engine = create_engine(DATABASE_URL)
         ensure_tables_exist(engine)
         obs_stats = upsert_observations(fact_df, engine)
         dim_stats = upsert_dim_series(dim_df, engine)
+        mart_stats = build_marts(engine)
 
     except Exception as e:
         logging.error(
@@ -147,13 +149,15 @@ def run_pipeline():
         sys.exit(1)
 
     logging.info(
-        f"Pipeline complete — observations: {obs_stats}, dim_series: {dim_stats}",
+        f"Pipeline complete — observations: {obs_stats}, "
+        f"dim_series: {dim_stats}, marts: {mart_stats}",
         extra={
             "source": "pipeline",
             "stage": "load",
             "status": "completed",
             "observations_stats": str(obs_stats),
             "dim_series_stats": str(dim_stats),
+            "mart_stats": str(mart_stats),
         },
     )
 

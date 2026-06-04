@@ -13,93 +13,122 @@ from sqlalchemy.engine import Engine
 logger = logging.getLogger(__name__)
 
 
-# Tracks SQLAlchemy engines that have had the SQLite raw-attach connect
+# The layered warehouse keeps three schemas: `raw` (landing), `staging`
+# (clean/conform), and `public_analytics` (domain marts). All three are
+# attached on SQLite and created on PostgreSQL by the same wiring so the
+# `<schema>.<table>` SQL syntax is identical across dialects.
+WAREHOUSE_SCHEMAS: tuple[str, ...] = ("raw", "staging", "public_analytics")
+
+
+# Tracks SQLAlchemy engines that have had the SQLite schema-attach connect
 # listener wired up. WeakSet so a disposed engine is garbage-collected
 # without lingering in this registry.
 _wired_engines: WeakSet[Engine] = WeakSet()
 
 
-def _sqlite_raw_target(engine_url) -> str:
-    """Resolve the file (or :memory:) to attach as the `raw` schema.
+def _sqlite_schema_target(engine_url, schema: str) -> str:
+    """Resolve the file (or :memory:) to attach for a warehouse schema.
 
     In-memory engines attach another `:memory:` database — the schema lives
     for the engine's lifetime, which matches the test fixture pattern.
-    File-based engines attach a sibling file named `<stem>_raw.db` next to
-    the main database, so persistence semantics match the main file.
+    File-based engines attach a sibling file named `<stem>_<schema>.db` next
+    to the main database, so persistence semantics match the main file. The
+    `raw` schema keeps its historical `<stem>_raw.db` name under this rule.
     """
     db = engine_url.database
     if db in (None, "", ":memory:"):
         return ":memory:"
     main_path = Path(db)
-    return (main_path.parent / f"{main_path.stem}_raw.db").as_posix()
+    return (main_path.parent / f"{main_path.stem}_{schema}.db").as_posix()
 
 
-def _wire_sqlite_raw_attach(engine: Engine) -> None:
-    """Register a connect listener that ATTACHes the raw database for SQLite.
+def _wire_sqlite_schema_attach(engine: Engine) -> None:
+    """Register a connect listener that ATTACHes the warehouse schemas.
 
     SQLite has no native schemas — `raw.<table>` is interpreted as a table
     in an attached database named `raw`. The listener fires on every new
-    pooled connection so callers see the schema regardless of pool churn.
-    Idempotent — tracked via the module-level _wired_engines WeakSet so
-    repeated calls on the same engine instance are no-ops without
+    pooled connection so callers see all three schemas regardless of pool
+    churn. Idempotent — tracked via the module-level _wired_engines WeakSet
+    so repeated calls on the same engine instance are no-ops without
     attaching an arbitrary attribute to the third-party Engine class.
     """
     if engine in _wired_engines:
         return
-    target = _sqlite_raw_target(engine.url)
+    targets = {s: _sqlite_schema_target(engine.url, s) for s in WAREHOUSE_SCHEMAS}
 
     @event.listens_for(engine, "connect")
-    def _attach_raw(dbapi_conn, _record):
+    def _attach_schemas(dbapi_conn, _record):
         cur = dbapi_conn.cursor()
         try:
-            cur.execute(f"ATTACH DATABASE '{target}' AS raw")
+            for schema, target in targets.items():
+                cur.execute(f"ATTACH DATABASE '{target}' AS {schema}")
         finally:
             cur.close()
 
     _wired_engines.add(engine)
 
 
-def ensure_tables_exist(engine) -> None:
-    """Create the `raw` schema and the two raw tables if they don't exist.
+def ensure_schemas(engine) -> None:
+    """Ensure the raw, staging, and public_analytics schemas exist.
 
-    PostgreSQL: executes ``CREATE SCHEMA IF NOT EXISTS raw`` so the tables
-    land in the layered-warehouse `raw` zone (raw → staging → marts).
-    SQLite: attaches a sibling (or in-memory) database as `raw`, giving the
-    same ``raw.<table>`` SQL syntax across dialects.
+    PostgreSQL: ``CREATE SCHEMA IF NOT EXISTS`` for each, so the layered
+    warehouse (raw → staging → marts) has its three zones.
+    SQLite: attaches a sibling (or in-memory) database per schema, giving the
+    same ``<schema>.<table>`` SQL syntax across dialects.
 
-    Idempotent — safe to call repeatedly on the same engine.
+    Idempotent — safe to call repeatedly on the same engine. Both
+    ``ensure_tables_exist`` (raw landing) and ``marts.build_marts`` (staging
+    and marts) call this, so either entry point leaves the schemas usable.
     """
     dialect = engine.dialect.name
 
     if dialect == "sqlite":
-        _wire_sqlite_raw_attach(engine)
+        _wire_sqlite_schema_attach(engine)
 
     with engine.connect() as conn:
         if dialect == "postgresql":
-            conn.execute(text("CREATE SCHEMA IF NOT EXISTS raw"))
+            for schema in WAREHOUSE_SCHEMAS:
+                conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
+            conn.commit()
             logger.info(
-                "raw schema ensured",
-                extra={"source": "load", "dialect": dialect, "schema": "raw"},
-            )
-        elif dialect == "sqlite":
-            # Safety net: if a connection from the pool predated the listener
-            # (e.g. ensure_tables_exist is called after the engine was already
-            # connected elsewhere), attach on the current connection too.
-            attached = {row[1] for row in conn.execute(text("PRAGMA database_list"))}
-            if "raw" not in attached:
-                conn.execute(
-                    text(f"ATTACH DATABASE '{_sqlite_raw_target(engine.url)}' AS raw")
-                )
-            logger.info(
-                "raw schema attached",
+                "warehouse schemas ensured",
                 extra={
                     "source": "load",
                     "dialect": dialect,
-                    "schema": "raw",
-                    "target": _sqlite_raw_target(engine.url),
+                    "schemas": ",".join(WAREHOUSE_SCHEMAS),
+                },
+            )
+        elif dialect == "sqlite":
+            # Safety net: if a connection from the pool predated the listener
+            # (e.g. ensure_schemas is called after the engine was already
+            # connected elsewhere), attach on the current connection too.
+            attached = {row[1] for row in conn.execute(text("PRAGMA database_list"))}
+            for schema in WAREHOUSE_SCHEMAS:
+                if schema not in attached:
+                    target = _sqlite_schema_target(engine.url, schema)
+                    conn.execute(text(f"ATTACH DATABASE '{target}' AS {schema}"))
+            logger.info(
+                "warehouse schemas attached",
+                extra={
+                    "source": "load",
+                    "dialect": dialect,
+                    "schemas": ",".join(WAREHOUSE_SCHEMAS),
                 },
             )
 
+
+def ensure_tables_exist(engine) -> None:
+    """Create the warehouse schemas and the two raw tables if missing.
+
+    Ensures all three schemas (raw → staging → marts) via ``ensure_schemas``,
+    then creates the raw landing tables. The staging and mart tables are
+    created and populated by ``marts.build_marts`` as a later pipeline stage.
+
+    Idempotent — safe to call repeatedly on the same engine.
+    """
+    ensure_schemas(engine)
+
+    with engine.connect() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS raw.fact_economic_observations (
                 series_id   TEXT NOT NULL,
