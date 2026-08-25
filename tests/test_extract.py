@@ -1,10 +1,11 @@
 import json
-import pytest
-import requests
 from datetime import datetime
 from unittest.mock import MagicMock
-from src import extract
 
+import pytest
+import requests
+
+from src import extract
 
 # ==========================================================
 # Hashing Tests
@@ -380,11 +381,19 @@ def test_bls_change_creates_new_snapshot(temp_dirs, monkeypatch):
 
     response_v1 = {
         "status": "REQUEST_SUCCEEDED",
-        "Results": {"series": [{"seriesID": "TEST123", "data": [{"year": "2024", "period": "M01", "value": "100"}]}]},
+        "Results": {
+            "series": [
+                {"seriesID": "TEST123", "data": [{"year": "2024", "period": "M01", "value": "100"}]}
+            ]
+        },
     }
     response_v2 = {
         "status": "REQUEST_SUCCEEDED",
-        "Results": {"series": [{"seriesID": "TEST123", "data": [{"year": "2024", "period": "M02", "value": "101"}]}]},
+        "Results": {
+            "series": [
+                {"seriesID": "TEST123", "data": [{"year": "2024", "period": "M02", "value": "101"}]}
+            ]
+        },
     }
 
     mock_post = MagicMock()

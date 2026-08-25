@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
-from src import transform
 
+from src import transform
 
 FRED_SERIES_MAP = {"UNRATE": "UNRATE", "PCE_NOMINAL": "PCEC"}
 BLS_SERIES_MAP  = {"CPI_URBAN": "CUUR0000SA0", "AVG_WAGES": "CES0500000003"}
@@ -306,7 +306,7 @@ def test_parse_bls_missing_value_dash_becomes_nan():
     }
     result = transform.parse_bls_batch(data, {"CPI_URBAN": "CUUR0000SA0"})
     feb_row = result[result["date"] == pd.Timestamp("2024-02-01")]
-    assert pd.isna(feb_row["value"].iloc[0])    
+    assert pd.isna(feb_row["value"].iloc[0])
 
 
 # ==========================================================

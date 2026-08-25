@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 from sqlalchemy import inspect, text
-from src import load
 
+from src import load
 
 # ==========================================================
 # Table Creation Tests
@@ -66,7 +66,9 @@ def test_upsert_observations_correct_value_in_db(db_engine, sample_observations_
     load.upsert_observations(sample_observations_df, db_engine)
 
     with db_engine.connect() as conn:
-        df = pd.read_sql("SELECT * FROM raw.fact_economic_observations WHERE series_id = 'FEDFUNDS'", conn)
+        df = pd.read_sql(
+            "SELECT * FROM raw.fact_economic_observations WHERE series_id = 'FEDFUNDS'", conn
+        )
     assert pytest.approx(df["value"].iloc[0], abs=0.01) == 5.33
 
 
@@ -76,7 +78,9 @@ def test_upsert_observations_nan_persisted_as_null(db_engine, sample_observation
     load.upsert_observations(sample_observations_df, db_engine)
 
     with db_engine.connect() as conn:
-        df = pd.read_sql("SELECT * FROM raw.fact_economic_observations WHERE series_id = 'UNRATE'", conn)
+        df = pd.read_sql(
+            "SELECT * FROM raw.fact_economic_observations WHERE series_id = 'UNRATE'", conn
+        )
 
     feb_row = df[df["date"] == pd.Timestamp("2024-02-01")]
     assert feb_row["value"].isna().all()
@@ -115,11 +119,15 @@ def test_upsert_observations_updates_changed_value(db_engine, sample_observation
     load.upsert_observations(revised, db_engine)
 
     with db_engine.connect() as conn:
-        df = pd.read_sql("SELECT * FROM raw.fact_economic_observations WHERE series_id = 'FEDFUNDS'", conn)
+        df = pd.read_sql(
+            "SELECT * FROM raw.fact_economic_observations WHERE series_id = 'FEDFUNDS'", conn
+        )
     assert pytest.approx(df["value"].iloc[0], abs=0.01) == 5.50
 
 
-def test_upsert_observations_returns_correct_stats_on_partial_update(db_engine, sample_observations_df):
+def test_upsert_observations_returns_correct_stats_on_partial_update(
+    db_engine, sample_observations_df
+):
     """1 changed row → updated=1, unchanged=2, inserted=0."""
     load.ensure_tables_exist(db_engine)
     load.upsert_observations(sample_observations_df, db_engine)

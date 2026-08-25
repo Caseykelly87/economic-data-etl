@@ -16,7 +16,6 @@ from src import sim_ingest
 from src.exceptions import ReconciliationError, SchemaValidationError
 from src.schemas import DepartmentSalesRecord
 
-
 # ==========================================================
 # load_department_sales â€” happy path against shared fixture
 # ==========================================================

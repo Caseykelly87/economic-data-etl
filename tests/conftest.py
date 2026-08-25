@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+
 from src import extract
 
 
@@ -75,9 +76,9 @@ def raw_fred_json():
         "offset": 0,
         "limit": 100000,
         "observations": [
-            {"date": "2024-01-01", "value": "5.0",  "realtime_start": "2024-01-01", "realtime_end": "9999-12-31"},
-            {"date": "2024-02-01", "value": ".",     "realtime_start": "2024-02-01", "realtime_end": "9999-12-31"},
-            {"date": "2024-03-01", "value": "5.2",  "realtime_start": "2024-03-01", "realtime_end": "9999-12-31"},
+            {"date": "2024-01-01", "value": "5.0",  "realtime_start": "2024-01-01", "realtime_end": "9999-12-31"},  # noqa: E501
+            {"date": "2024-02-01", "value": ".",     "realtime_start": "2024-02-01", "realtime_end": "9999-12-31"},  # noqa: E501
+            {"date": "2024-03-01", "value": "5.2",  "realtime_start": "2024-03-01", "realtime_end": "9999-12-31"},  # noqa: E501
         ],
     }
 
@@ -98,17 +99,17 @@ def raw_bls_json():
                 {
                     "seriesID": "CUUR0000SA0",
                     "data": [
-                        {"year": "2024", "period": "M03", "periodName": "March",    "value": "314.2", "footnotes": [{}]},
-                        {"year": "2024", "period": "M02", "periodName": "February", "value": "313.5", "footnotes": [{}]},
-                        {"year": "2024", "period": "M01", "periodName": "January",  "value": "312.0", "footnotes": [{}]},
+                        {"year": "2024", "period": "M03", "periodName": "March",    "value": "314.2", "footnotes": [{}]},  # noqa: E501
+                        {"year": "2024", "period": "M02", "periodName": "February", "value": "313.5", "footnotes": [{}]},  # noqa: E501
+                        {"year": "2024", "period": "M01", "periodName": "January",  "value": "312.0", "footnotes": [{}]},  # noqa: E501
                     ],
                 },
                 {
                     "seriesID": "CES0500000003",
                     "data": [
-                        {"year": "2024", "period": "M03", "periodName": "March",    "value": "34.85", "footnotes": [{}]},
-                        {"year": "2024", "period": "M02", "periodName": "February", "value": "34.75", "footnotes": [{}]},
-                        {"year": "2024", "period": "M01", "periodName": "January",  "value": "34.55", "footnotes": [{}]},
+                        {"year": "2024", "period": "M03", "periodName": "March",    "value": "34.85", "footnotes": [{}]},  # noqa: E501
+                        {"year": "2024", "period": "M02", "periodName": "February", "value": "34.75", "footnotes": [{}]},  # noqa: E501
+                        {"year": "2024", "period": "M01", "periodName": "January",  "value": "34.55", "footnotes": [{}]},  # noqa: E501
                     ],
                 },
             ]

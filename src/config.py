@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -34,7 +35,7 @@ FRED_SERIES = {
     "PCE_REAL": "PCECC96",        # Real PCE (Inflation Adjusted)
     "RETAIL_SALES": "RSXFS",      # Retail Sales (Excl. Food)
     "SENTIMENT": "UMCSENT",       # Consumer Sentiment
-    
+
     # Macro Drivers
     "CPI_ALL": "CPIAUCSL",        # Consumer Price Index
     "GDP_REAL": "GDPC1",          # Real GDP

@@ -14,7 +14,6 @@ from sqlalchemy import inspect, text
 from src import load, marts
 from src.config import BLS_SERIES, FRED_SERIES, MART_DOMAINS
 
-
 # A raw fixture spanning every domain plus unmapped series. series_id holds
 # the technical ID (as raw.fact_economic_observations does); two dates per
 # series so "latest" in the summary is a real choice, not the only row.

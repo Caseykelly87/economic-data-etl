@@ -8,8 +8,8 @@ output on repeat runs.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
 import hashlib
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -120,7 +120,9 @@ def test_flags_parquet_dtypes_round_trip(
                 "distance_from_band", "severity_score"):
         assert pd.api.types.is_float_dtype(df[col])
     assert df["rule_id"].dtype == object or pd.api.types.is_string_dtype(df["rule_id"])
-    assert df["severity_level"].dtype == object or pd.api.types.is_string_dtype(df["severity_level"])
+    assert df["severity_level"].dtype == object or pd.api.types.is_string_dtype(
+        df["severity_level"]
+    )
 
 
 def test_flags_parquet_sorted_by_date_store_rule(

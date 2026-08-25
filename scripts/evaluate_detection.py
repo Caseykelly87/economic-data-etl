@@ -42,7 +42,6 @@ from typing import Any
 
 import pandas as pd
 
-
 CONTRACT_GLOBAL_RECALL = 0.35
 CONTRACT_FPR = 0.10
 

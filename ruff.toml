@@ -1,0 +1,8 @@
+# Explicit rule set so lint behavior doesn't drift with ruff's own
+# defaults — CI installs the latest ruff, and an unconfigured run picks
+# up whatever that version's default selection happens to be. Mirrors
+# the sim engine repo's configuration.
+line-length = 100
+
+[lint]
+select = ["E", "F", "I", "W"]

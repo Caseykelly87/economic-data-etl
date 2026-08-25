@@ -6,7 +6,6 @@ import pandas as pd
 from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
 
-
 # Macro pipeline uses stdlib logging rather than structlog. The grocery
 # pipeline (sim_ingest.py, sim_transform.py, detect_*.py) uses structlog
 # directly; the asymmetry is intentional and documented in observability.py.

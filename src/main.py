@@ -1,35 +1,35 @@
 import logging
 import sys
-from sqlalchemy import create_engine
 from datetime import datetime
+
+from sqlalchemy import create_engine
+
+from src.config import (
+    BLS_SERIES,
+    BLS_START_YEAR,
+    DATABASE_URL,
+    ERS_CATEGORY_MAP,
+    ERS_SERIES,
+    ERS_START_YEAR,
+    FRED_SERIES,
+    bootstrap_paths,
+)
 
 # Macro pipeline uses stdlib logging rather than structlog. The grocery
 # pipeline (sim_ingest.py, sim_transform.py, detect_*.py) uses structlog
 # directly; the asymmetry is intentional. Configure_logging() below wires
 # the structlog stdlib bridge so both pipelines share a single renderer.
-
-from src.extract import fetch_fred_data, fetch_bls_data, fetch_ers_price_outlook
+from src.extract import fetch_bls_data, fetch_ers_price_outlook, fetch_fred_data
+from src.load import ensure_tables_exist, upsert_dim_series, upsert_observations
+from src.marts import build_marts
+from src.observability import configure_logging
 from src.transform import (
-    parse_fred_observations,
-    parse_bls_batch,
-    parse_ers_csv,
     build_dim_series,
     combine_fact_tables,
+    parse_bls_batch,
+    parse_ers_csv,
+    parse_fred_observations,
 )
-from src.load import ensure_tables_exist, upsert_observations, upsert_dim_series
-from src.marts import build_marts
-from src.config import (
-    FRED_SERIES,
-    BLS_SERIES,
-    ERS_CATEGORY_MAP,
-    ERS_SERIES,
-    DATABASE_URL,
-    BLS_START_YEAR,
-    ERS_START_YEAR,
-    bootstrap_paths,
-)
-from src.observability import configure_logging
-
 
 configure_logging()
 

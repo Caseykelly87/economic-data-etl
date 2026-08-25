@@ -1,10 +1,10 @@
+import csv
 import functools
+import hashlib
 import json
 import logging
-import hashlib
 import random
 import re
-import csv
 import time
 from datetime import datetime
 from io import StringIO
@@ -16,15 +16,13 @@ import requests
 # directly; the asymmetry is intentional. The macro side was the first
 # to ship and its log surface is mature — observability.py's structlog
 # stdlib bridge renders these stdlib calls through the same pipeline.
-
 from src.config import (
-    FRED_API_KEY,
     BLS_API_KEY,
-    ERS_SUMMARY_URL,
-    DATA_RAW_DIR,
     DATA_METADATA_DIR,
+    DATA_RAW_DIR,
+    ERS_SUMMARY_URL,
+    FRED_API_KEY,
 )
-
 
 # ==========================================================
 # Utility Functions
@@ -188,7 +186,7 @@ def fetch_fred_data(series_id):
 
 @fetch_with_retry
 def fetch_bls_data(series_dict, start_year, end_year):
-    """Batch-fetch all BLS series and persist a single raw JSON snapshot."""    
+    """Batch-fetch all BLS series and persist a single raw JSON snapshot."""
 
     if not BLS_API_KEY:
         raise ValueError("BLS_API_KEY not set.")
@@ -311,7 +309,7 @@ def fetch_ers_price_outlook():
     metadata = load_metadata("ERS", identifier)
 
     csv_url = get_dynamic_ers_url()
-    
+
     headers = _ERS_BROWSER_HEADERS
     response = requests.get(csv_url, headers=headers, timeout=15)
     if response.status_code == 404:
