@@ -33,20 +33,21 @@ RULES_PATH = REPO_ROOT / "config" / "detection_rules.yaml"
 # Department-grain irregularities present in the canonical: store-days
 # with 9 rows (a department missing) and with 11 rows (a department
 # duplicated). Read directly off department_daily_metrics.parquet by the
-# tests below; restated here as the contract figures.
-EXPECTED_MISSING = 39
-EXPECTED_DUPLICATE = 13
-EXPECTED_STRUCTURAL = EXPECTED_MISSING + EXPECTED_DUPLICATE  # 52
+# tests below; restated here as the contract figures. The canonical is
+# the two-full-year window (2024-01-01 through 2025-12-31, 731 days).
+EXPECTED_MISSING = 83
+EXPECTED_DUPLICATE = 27
+EXPECTED_STRUCTURAL = EXPECTED_MISSING + EXPECTED_DUPLICATE  # 110
 
 # The two department-grain rules that fire on the canonical alongside
 # department_coverage. gross_margin_band flags store-days with a margin
 # outlier department; department_reconciliation flags store-days whose
 # department net_sales do not sum to the store total (which catches both
-# the injected integrity breaches and, as a side effect, the missing /
-# duplicated-department store-days, hence a count above the 59 injected
+# the injected integrity breaches and, as a side effect, the
+# duplicated-department store-days, hence a count above the 114 injected
 # integrity breaches).
-EXPECTED_MARGIN = 24
-EXPECTED_RECONCILIATION = 72
+EXPECTED_MARGIN = 48
+EXPECTED_RECONCILIATION = 141
 
 # Non-structural flag counts in the committed canonical: the value bands
 # that still fire after their widths were widened to the natural-variance
@@ -56,9 +57,9 @@ EXPECTED_RECONCILIATION = 72
 # regeneration that shifts them needs a matching update here (and
 # downstream in README + __TESTING_NOTES.md).
 EXPECTED_BAND_FLAGS = {
-    "transactions_band": 18,
-    "yoy_comp": 1,
-    "revenue_zscore_28d": 11,
+    "transactions_band": 22,
+    "yoy_comp": 2,
+    "revenue_zscore_28d": 20,
 }
 
 
