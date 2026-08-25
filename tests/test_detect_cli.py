@@ -9,8 +9,8 @@ exit code 1.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
 import hashlib
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -19,7 +19,6 @@ import pytest
 
 from src import detect_cli, sim_cli
 from src.schemas import ANOMALY_FLAG_COLUMNS
-
 
 # ----- helpers ----------------------------------------------------------------
 

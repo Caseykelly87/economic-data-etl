@@ -104,8 +104,11 @@ def download_and_filter(url: str):
 
     xl = pd.ExcelFile(BytesIO(resp.content))
     # We will join all these sheets into one St. Louis record
-    data_sheets = ['STORES', 'RESTAURANTS', 'ACCESS', 'ASSISTANCE', 'INSECURITY', 'TAXES', 'LOCAL', 'HEALTH', 'SOCIOECONOMIC']
-    
+    data_sheets = [
+        'STORES', 'RESTAURANTS', 'ACCESS', 'ASSISTANCE', 'INSECURITY',
+        'TAXES', 'LOCAL', 'HEALTH', 'SOCIOECONOMIC',
+    ]
+
     # Initialize a master dataframe with FIPS as index
     combined_stl = pd.DataFrame(index=list(STL_FIPS))
     combined_stl.index.name = 'FIPS'
@@ -113,44 +116,47 @@ def download_and_filter(url: str):
     for sheet in data_sheets:
         if sheet not in xl.sheet_names:
             continue
-            
+
         # Robust Header Detection: Find the row containing 'FIPS'
         temp_df = xl.parse(sheet, nrows=10, header=None)
         header_row = None
         fips_col_idx = None
-        
+
         for idx, row in temp_df.iterrows():
             row_values = [str(v).lower() for v in row]
             if any("fips" in v for v in row_values):
                 header_row = idx
                 fips_col_idx = row_values.index(next(v for v in row_values if "fips" in v))
                 break
-        
+
         if header_row is None:
             continue
 
         # Load the sheet with the correct header
         df = xl.parse(sheet, skiprows=header_row)
         fips_col = df.columns[fips_col_idx]
-        
+
         # Robust FIPS normalization: handles '29189.0' or '29189'
-        df[fips_col] = pd.to_numeric(df[fips_col], errors='coerce').fillna(0).astype(int).astype(str).str.zfill(5)
-        
+        df[fips_col] = (
+            pd.to_numeric(df[fips_col], errors='coerce')
+            .fillna(0).astype(int).astype(str).str.zfill(5)
+        )
+
         # Filter for St. Louis and drop duplicate geo columns (State/County names)
         stl_rows = df[df[fips_col].isin(STL_FIPS)].copy()
         stl_rows = stl_rows.set_index(fips_col)
-        
+
         # Drop common columns that exist in every sheet to avoid suffixes
         cols_to_drop = [c for c in ['State', 'County', 'STATE', 'COUNTY'] if c in stl_rows.columns]
         stl_rows = stl_rows.drop(columns=cols_to_drop)
-        
+
         combined_stl = combined_stl.join(stl_rows, how='left')
         print(f"  Joined {len(stl_rows)} STL rows from sheet '{sheet}'")
 
     if combined_stl.empty:
         print("ERROR: No St. Louis data found across sheets.")
         sys.exit(1)
-        
+
     sheets_joined = ", ".join(data_sheets)
     return combined_stl.reset_index(), sheets_joined
 

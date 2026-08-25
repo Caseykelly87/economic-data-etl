@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help=(
             "Path to the sim engine's output/ directory. Must contain "
-            "dimensions/dim_stores.csv and a populated daily/{MM}/{DD}/{YYYY}/ tree."
+            "dimensions/dim_stores.csv and a populated daily/{YYYY}/{MM}/{DD}/ tree."
         ),
     )
     parser.add_argument(

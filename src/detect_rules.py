@@ -12,7 +12,8 @@ Five statistical-band rules evaluate at store-day grain against the
 * ``revenue_band`` — total_sales vs ``base_daily_revenue`` ± ``band_pct``
 * ``labor_pct_band`` — labor_cost_pct vs profile center ± ``half_width_pp``
 * ``avg_ticket_band`` — avg_basket_size vs profile center ± ``band_pct``
-* ``transactions_band`` — transaction_count vs ``base_daily_revenue / avg_ticket_center`` ± ``band_pct``
+* ``transactions_band`` — transaction_count vs ``base_daily_revenue / avg_ticket_center``
+  ± ``band_pct``
 * ``yoy_comp`` — current/T-365 sales ratio outside ``[ratio_lower, ratio_upper]``
 
 One rolling-baseline rule evaluates at store-day grain against the
@@ -65,7 +66,6 @@ from src.schemas import (
     KNOWN_PROFILES,
     RULE_IDS,
 )
-
 
 # ==============================================================================
 # Config loader

@@ -1,10 +1,9 @@
 requests
 pandas
-openpyxl
+openpyxl        # xlsx engine for scripts/download_food_atlas.py
 python-dotenv
 pytest
 pytest-cov
-pytest-mock
 ruff
 sqlalchemy
 psycopg2-binary

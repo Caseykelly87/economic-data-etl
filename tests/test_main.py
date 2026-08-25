@@ -1,11 +1,12 @@
 import logging
 from datetime import datetime
+from unittest.mock import call, patch
+
 import pandas as pd
 import pytest
-from unittest.mock import patch, call
-from src import main
-from src.config import FRED_SERIES, BLS_SERIES, ERS_SERIES, BLS_START_YEAR
 
+from src import main
+from src.config import BLS_SERIES, BLS_START_YEAR, ERS_SERIES, FRED_SERIES
 
 # ---------------------------------------------------------------------------
 # Neutral return values reused across all tests
@@ -42,7 +43,7 @@ def pipeline_mocks():
          patch("src.main.upsert_observations",     return_value=_LOAD_STATS) as mock_upsert_obs, \
          patch("src.main.upsert_dim_series",       return_value={"inserted": 0, "unchanged": 0}) \
                                                                               as mock_upsert_dim, \
-         patch("src.main.build_marts",             return_value={"staging": 0}) as mock_build_marts, \
+         patch("src.main.build_marts", return_value={"staging": 0}) as mock_build_marts, \
          patch("src.main.create_engine")                                      as mock_engine:
         yield {
             "fetch_fred":    mock_fred,
@@ -80,7 +81,9 @@ def test_run_pipeline_calls_bls_with_correct_args(pipeline_mocks):
     """run_pipeline must call fetch_bls_data with BLS_SERIES and the configured year range."""
     main.run_pipeline()
 
-    pipeline_mocks["fetch_bls"].assert_called_once_with(BLS_SERIES, BLS_START_YEAR, datetime.now().year)
+    pipeline_mocks["fetch_bls"].assert_called_once_with(
+        BLS_SERIES, BLS_START_YEAR, datetime.now().year
+    )
 
 
 def test_run_pipeline_exits_nonzero_on_fred_error(pipeline_mocks, caplog):

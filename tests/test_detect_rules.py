@@ -18,7 +18,6 @@ from src import detect_rules
 from src.exceptions import DetectionConfigError, DetectionInputError
 from src.schemas import ANOMALY_FLAG_COLUMNS, RULE_IDS, SEVERITY_LEVELS
 
-
 # ----- helpers ----------------------------------------------------------------
 
 

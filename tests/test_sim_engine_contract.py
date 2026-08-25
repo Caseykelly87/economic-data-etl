@@ -40,9 +40,9 @@ def test_store_day_transform_produces_expected_values():
     CSV, with avg_basket_size equal to total_sales / transaction_count.
 
     Source rows (store_summary.csv):
-        2024-07-01,1,86429.35,86429.35,2337,9923.32,0.1148
-        2024-07-01,2,101233.48,101233.48,2625,11268.61,0.1113
-        2024-07-01,8,49195.84,49195.84,1532,6348.91,0.1291
+        2024-07-01,1,86429.35,86429.35,2318,9923.32,0.1148
+        2024-07-01,2,101233.48,101233.48,2595,11268.61,0.1113
+        2024-07-01,8,49195.84,49195.84,1521,6348.91,0.1291
     """
     records = list(sim_ingest.load_store_summaries(CONTRACT_ROOT))
     dim_stores = sim_ingest.load_dim_stores(CONTRACT_ROOT)
@@ -55,16 +55,16 @@ def test_store_day_transform_produces_expected_values():
     by_store = metrics.set_index("store_id")
 
     assert by_store.loc[1, "total_sales"] == pytest.approx(86429.35)
-    assert by_store.loc[1, "transaction_count"] == 2337
+    assert by_store.loc[1, "transaction_count"] == 2318
     assert by_store.loc[1, "labor_cost_pct"] == pytest.approx(0.1148)
-    assert by_store.loc[1, "avg_basket_size"] == pytest.approx(86429.35 / 2337)
+    assert by_store.loc[1, "avg_basket_size"] == pytest.approx(86429.35 / 2318)
 
     assert by_store.loc[2, "total_sales"] == pytest.approx(101233.48)
-    assert by_store.loc[2, "transaction_count"] == 2625
-    assert by_store.loc[2, "avg_basket_size"] == pytest.approx(101233.48 / 2625)
+    assert by_store.loc[2, "transaction_count"] == 2595
+    assert by_store.loc[2, "avg_basket_size"] == pytest.approx(101233.48 / 2595)
 
     assert by_store.loc[8, "total_sales"] == pytest.approx(49195.84)
-    assert by_store.loc[8, "transaction_count"] == 1532
+    assert by_store.loc[8, "transaction_count"] == 1521
     assert by_store.loc[8, "labor_cost_pct"] == pytest.approx(0.1291)
 
 
@@ -80,8 +80,8 @@ def test_department_transform_and_cross_grain_reconciliation():
     reconcile.
 
     Source rows (department_sales.csv):
-        2024-07-01,1,1,12846.11,0.0,12846.11,...,0.48,336,1082,...
-        2024-07-01,7,7,13803.2,0.0,13803.2,...,0.2659,419,2004,...
+        2024-07-01,1,1,12846.11,0.0,12846.11,...,0.48,339,1096,...
+        2024-07-01,7,7,13803.2,0.0,13803.2,...,0.2659,423,1952,...
     """
     dept_records = list(sim_ingest.load_department_sales(CONTRACT_ROOT))
     store_records = list(sim_ingest.load_store_summaries(CONTRACT_ROOT))
@@ -95,14 +95,14 @@ def test_department_transform_and_cross_grain_reconciliation():
 
     s1d1 = dept[(dept["store_id"] == 1) & (dept["department_id"] == 1)].iloc[0]
     assert s1d1["net_sales"] == pytest.approx(12846.11)
-    assert s1d1["transactions"] == 336
-    assert s1d1["units_sold"] == 1082
+    assert s1d1["transactions"] == 339
+    assert s1d1["units_sold"] == 1096
     assert s1d1["gross_margin_pct"] == pytest.approx(0.48)
 
     s7d7 = dept[(dept["store_id"] == 7) & (dept["department_id"] == 7)].iloc[0]
     assert s7d7["net_sales"] == pytest.approx(13803.20)
-    assert s7d7["transactions"] == 419
-    assert s7d7["units_sold"] == 2004
+    assert s7d7["transactions"] == 423
+    assert s7d7["units_sold"] == 1952
 
     # Cross-grain invariant: per store, the department net_sales must sum to
     # the store_summary net_sales_total. The sim engine derives the store

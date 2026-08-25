@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pandas as pd
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HAPPY_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "sim_engine" / "happy" / "output"
 SCRIPT = REPO_ROOT / "scripts" / "build_canonical_fixtures.py"

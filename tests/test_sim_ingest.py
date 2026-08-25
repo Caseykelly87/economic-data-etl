@@ -16,7 +16,6 @@ from src import sim_ingest
 from src.exceptions import ReconciliationError, SchemaValidationError
 from src.schemas import StoreSummaryRecord
 
-
 # ==========================================================
 # load_store_summaries — happy path
 # ==========================================================

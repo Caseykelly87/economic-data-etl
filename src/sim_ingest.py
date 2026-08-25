@@ -28,7 +28,7 @@ from src.schemas import (
 
 
 def load_store_summaries(root: Path) -> Iterator[StoreSummaryRecord]:
-    """Walk ``{root}/daily/{MM}/{DD}/{YYYY}/`` and yield one record per CSV row.
+    """Walk ``{root}/daily/{YYYY}/{MM}/{DD}/`` and yield one record per CSV row.
 
     The walker sorts matched paths so yield order is deterministic across
     runs and platforms. Every ``store_summary.csv`` is validated against
@@ -63,7 +63,7 @@ def load_store_summaries(root: Path) -> Iterator[StoreSummaryRecord]:
         )
 
     date_dirs = sorted(
-        p for p in daily_root.glob("??/??/????") if p.is_dir()
+        p for p in daily_root.glob("????/??/??") if p.is_dir()
     )
     if not date_dirs:
         raise ReconciliationError(
@@ -82,7 +82,7 @@ def load_store_summaries(root: Path) -> Iterator[StoreSummaryRecord]:
 
 
 def load_department_sales(root: Path) -> Iterator[DepartmentSalesRecord]:
-    """Walk ``{root}/daily/{MM}/{DD}/{YYYY}/`` and yield department records.
+    """Walk ``{root}/daily/{YYYY}/{MM}/{DD}/`` and yield department records.
 
     Mirrors :func:`load_store_summaries` but reads ``department_sales.csv``
     from each date directory instead of ``store_summary.csv``. Yield order
@@ -121,7 +121,7 @@ def load_department_sales(root: Path) -> Iterator[DepartmentSalesRecord]:
         )
 
     date_dirs = sorted(
-        p for p in daily_root.glob("??/??/????") if p.is_dir()
+        p for p in daily_root.glob("????/??/??") if p.is_dir()
     )
     if not date_dirs:
         raise ReconciliationError(

@@ -1,35 +1,35 @@
 {
   "global": {
-    "injected_pairs": 135,
-    "matched_pairs": 135,
+    "injected_pairs": 272,
+    "matched_pairs": 272,
     "recall": 1.0
   },
   "by_anomaly_type": {
     "duplicate_row": {
-      "injected": 13,
-      "matched": 13,
+      "injected": 27,
+      "matched": 27,
       "recall": 1.0
     },
     "integrity_breach": {
-      "injected": 59,
-      "matched": 59,
+      "injected": 114,
+      "matched": 114,
       "recall": 1.0
     },
     "margin_outlier": {
-      "injected": 24,
-      "matched": 24,
+      "injected": 48,
+      "matched": 48,
       "recall": 1.0
     },
     "missing_department": {
-      "injected": 39,
-      "matched": 39,
+      "injected": 83,
+      "matched": 83,
       "recall": 1.0
     }
   },
-  "false_positive_rate": 0.009255962976148096,
-  "false_positives": 26,
-  "negative_universe": 2809,
-  "flag_rate": 0.06046195652173913,
-  "total_flags": 178,
-  "total_metric_rows": 2944
+  "false_positive_rate": 0.006276901004304161,
+  "false_positives": 35,
+  "negative_universe": 5576,
+  "flag_rate": 0.05865253077975376,
+  "total_flags": 343,
+  "total_metric_rows": 5848
 }
