@@ -1,4 +1,4 @@
-"""Tests for the department-grain source adapter.
+﻿"""Tests for the department-grain source adapter.
 
 Exercises the tree walker, CSV parsing, typed record shape, and failure
 modes against the on-disk fixtures under tests/fixtures/sim_engine/ as
@@ -18,7 +18,7 @@ from src.schemas import DepartmentSalesRecord
 
 
 # ==========================================================
-# load_department_sales — happy path against shared fixture
+# load_department_sales â€” happy path against shared fixture
 # ==========================================================
 
 
@@ -78,7 +78,7 @@ def test_source_path_points_at_csv(sim_happy_root):
 
 
 # ==========================================================
-# load_department_sales — failure modes
+# load_department_sales â€” failure modes
 # ==========================================================
 
 
@@ -97,7 +97,7 @@ def test_empty_daily_tree_raises(tmp_path):
 
 def test_missing_csv_in_walked_date_dir_raises(tmp_path):
     """A walked date directory missing department_sales.csv is a reconciliation error."""
-    date_dir = tmp_path / "daily" / "07" / "01" / "2025"
+    date_dir = tmp_path / "daily" / "2025" / "07" / "01"
     date_dir.mkdir(parents=True)
     # store_summary present, department_sales absent
     (date_dir / "store_summary.csv").write_text(
@@ -110,7 +110,7 @@ def test_missing_csv_in_walked_date_dir_raises(tmp_path):
 
 
 def test_missing_required_column_raises(tmp_path):
-    date_dir = tmp_path / "daily" / "07" / "01" / "2025"
+    date_dir = tmp_path / "daily" / "2025" / "07" / "01"
     date_dir.mkdir(parents=True)
     (date_dir / "department_sales.csv").write_text(
         "date_key,store_id,net_sales,transactions,units_sold,gross_margin_pct\n"
@@ -123,7 +123,7 @@ def test_missing_required_column_raises(tmp_path):
 
 
 def test_unparseable_row_raises(tmp_path):
-    date_dir = tmp_path / "daily" / "07" / "01" / "2025"
+    date_dir = tmp_path / "daily" / "2025" / "07" / "01"
     date_dir.mkdir(parents=True)
     (date_dir / "department_sales.csv").write_text(
         "date_key,store_id,department_id,net_sales,transactions,units_sold,gross_margin_pct\n"
