@@ -51,10 +51,26 @@ BLS_SERIES = {
     "CPI_URBAN": "CUUR0000SA0",   # Headline CPI
     "CPI_CORE": "CUUR0000SA0L1E", # Core CPI (Ex-Food/Energy)
     "GAS_PRICE": "APU000074714",  # Avg Price: Gasoline
-    
+
     # Labor (The "Income" for Spending)
     "AVG_WAGES": "CES0500000003", # Avg Hourly Earnings
-    "WAGE_INDEX": "CIU2020000000000I" # Employment Cost Index
+    "WAGE_INDEX": "CIU2020000000000I", # Employment Cost Index
+
+    # Food-category CPI indexes (monthly, U.S. city average, NSA). These
+    # carry the ERS_ prefix because the sim engine's realism layer queries
+    # raw.fact_economic_observations by these exact series_names — the
+    # names predate the switch to BLS as the source and are kept stable
+    # across the platform. The layer's multiplier math needs monthly index
+    # levels; the annual ERS forecast series below (ERS_FORECAST_*) are the
+    # wrong granularity for it and use distinct names so the two never mix.
+    "ERS_ALL_FOOD":   "CUUR0000SAF1",    # Food
+    "ERS_FOOD_HOME":  "CUUR0000SAF11",   # Food at home
+    "ERS_FOOD_AWAY":  "CUUR0000SEFV",    # Food away from home
+    "ERS_CEREALS":    "CUUR0000SAF111",  # Cereals and bakery products
+    "ERS_MEATS":      "CUUR0000SAF112",  # Meats, poultry, fish, and eggs
+    "ERS_DAIRY":      "CUUR0000SEFJ",    # Dairy and related products
+    "ERS_FRUITS_VEG": "CUUR0000SAF113",  # Fruits and vegetables
+    "ERS_BEVERAGES":  "CUUR0000SAF114",  # Nonalcoholic beverages
 }
 
 # --- Analytical mart domain routing ---
@@ -96,16 +112,22 @@ DATA_METADATA_DIR = BASE_DIR / "data" / "metadata"
 
 
 # --- ERS Food Price Outlook Configuration ---
-# Mapping from ERS CSV category strings to internal series IDs (used by transform)
+# Mapping from ERS CSV category strings to internal series IDs (used by
+# transform). These are annual year-over-year forecast percentages, not
+# index levels — the FORECAST_ segment keeps them apart from the monthly
+# ERS_* CPI series in BLS_SERIES above, which the sim engine's realism
+# layer consumes. Before the split, the forecasts sat under the plain
+# ERS_* names and the realism layer's DB mode read annual percentages
+# as if they were monthly index levels.
 ERS_CATEGORY_MAP = {
-    "All food": "ERS_ALL_FOOD",
-    "Food at home": "ERS_FOOD_HOME",
-    "Food away from home": "ERS_FOOD_AWAY",
-    "Cereals and bakery products": "ERS_CEREALS",
-    "Meats, poultry, and fish": "ERS_MEATS",
-    "Dairy products": "ERS_DAIRY",
-    "Fruits and vegetables": "ERS_FRUITS_VEG",
-    "Nonalcoholic beverages and beverage materials": "ERS_BEVERAGES",
+    "All food": "ERS_FORECAST_ALL_FOOD",
+    "Food at home": "ERS_FORECAST_FOOD_HOME",
+    "Food away from home": "ERS_FORECAST_FOOD_AWAY",
+    "Cereals and bakery products": "ERS_FORECAST_CEREALS",
+    "Meats, poultry, and fish": "ERS_FORECAST_MEATS",
+    "Dairy products": "ERS_FORECAST_DAIRY",
+    "Fruits and vegetables": "ERS_FORECAST_FRUITS_VEG",
+    "Nonalcoholic beverages and beverage materials": "ERS_FORECAST_BEVERAGES",
 }
 
 # ERS dimension entries (name -> series_id)
