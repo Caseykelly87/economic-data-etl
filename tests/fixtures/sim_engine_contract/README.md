@@ -22,7 +22,7 @@ upstream data rather than scaffolding.
 
 ```
 output/
-  daily/07/01/2024/
+  daily/2024/07/01/
     store_summary.csv       8 stores
     department_sales.csv    8 stores x 10 departments = 80 rows
   dimensions/dim_stores.csv 8 stores, full column set
@@ -39,8 +39,8 @@ input (verified by its own determinism test). To refresh this fixture, copy
 the three files from a sim engine `output/` tree:
 
 ```
-output/daily/07/01/2024/store_summary.csv
-output/daily/07/01/2024/department_sales.csv
+output/daily/2024/07/01/store_summary.csv
+output/daily/2024/07/01/department_sales.csv
 output/dimensions/dim_stores.csv
 ```
 

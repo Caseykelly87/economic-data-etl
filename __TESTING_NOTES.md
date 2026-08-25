@@ -165,55 +165,48 @@ expected band. Those rules never read the department-grain frame, so
 they cannot see irregularities in the *shape* of that data: a store-day
 missing a department's row, or carrying the same `department_id` twice.
 
-The canonical `department_daily_metrics.parquet` carries 52 such
-store-days — 39 with nine department rows (one department absent) and 13
-with eleven (one department duplicated). These are upstream simulation
-engine injections, not an ETL defect, and they pass schema validation
-because each individual row is well-formed. The `department_coverage`
-rule covers that gap. It evaluates one group per `(date, store_id)` on
-the department-grain frame and fires when the row count is not the
-configured `expected_row_count` or when a `department_id` repeats.
+The canonical `department_daily_metrics.parquet` carries a known set of
+such store-days — some with nine department rows (one department
+absent), some with eleven (one department duplicated). These are
+upstream simulation engine injections, not an ETL defect, and they pass
+schema validation because each individual row is well-formed. The
+`department_coverage` rule covers that gap. It evaluates one group per
+`(date, store_id)` on the department-grain frame and fires when the row
+count is not the configured `expected_row_count` or when a
+`department_id` repeats.
 
 The contract test for a structural rule has a different shape from the
 band-rule contract. A band rule's contract is "values inside the band
 produce no flag" (`test_sim_engine_contract.py`). A structural rule's
 contract is "the rule fires on the known structural irregularities and
 nowhere else": `test_detect_structural_contract.py` reads the committed
-canonical, asserts the rule fires on exactly the 52 irregular
-store-days, and asserts the missing-department and duplicated-department
-cases stay distinguishable by their flagged row count (9 versus 11). It
-also pins the regenerated `anomaly_flags.parquet` at 178 rows — 52
-`department_coverage` flags, 72 `department_reconciliation` flags, 24
-`gross_margin_band` flags, and 30 store-day flags from the value and
-rolling rules (18 `transactions_band`, 1 `yoy_comp`, 11
-`revenue_zscore_28d`). `revenue_band`, `labor_pct_band`, and
-`avg_ticket_band` fire nothing on the canonical once the bands are
-widened to the natural-variance envelope.
+canonical, asserts the rule fires on exactly the irregular store-days,
+and asserts the missing-department and duplicated-department cases stay
+distinguishable by their flagged row count (9 versus 11). It also pins
+the per-rule flag counts of the committed `anomaly_flags.parquet` — the
+exact figures live as constants at the top of that test file and must be
+updated together with any canonical regeneration. `revenue_band`,
+`labor_pct_band`, and `avg_ticket_band` fire nothing on the canonical
+once the bands are widened to the natural-variance envelope.
 
 ## Test categories observed
 
-Categorization snapshot taken when the suite held 246 tests. The suite
-is now at 287; the 41 added tests since the snapshot have not been
-graded under the business/structural/ceremony split, so the table below
-is a dated point-in-time record rather than a current breakdown. The
-suite at the start of the pass that produced the snapshot held 243
-tests.
+A test-quality pass graded the suite under the business/structural/
+ceremony split and found it roughly two-thirds business-correctness,
+one-third structural, with a handful of ceremony tests. The pass
+converted seven structural/ceremony tests covering hot-path code into
+business-correctness tests (three macro-transform value checks, two
+grocery-transform checks, the load-idempotency check, the
+canonical-output check) and added three contract tests. Tests added
+since have not been re-graded.
 
-| Category             | At start | After pass |
-|----------------------|----------|------------|
-| Business-correctness | 158      | 168        |
-| Structural           | 81       | 77         |
-| Ceremony             | 4        | 1          |
-| Uncategorizable      | 0        | 0          |
-
-That pass converted seven structural/ceremony tests covering hot-path
-code into business-correctness tests (three macro-transform value
-checks, two grocery-transform checks, the load-idempotency check, the
-canonical-output check) and added three contract tests, bringing the
-suite to 246. The structural/business split involves judgment at the
-margin — a row-count assertion and an exact-value assertion sit close
-together — but the direction of travel is what matters: hot-path code
-earns value assertions.
+Exact counts are deliberately not recorded here — a number in prose
+goes stale with every added test, and this file previously carried
+several that did. Run `pytest --collect-only -q` for the current
+figure. The structural/business split involves judgment at the margin —
+a row-count assertion and an exact-value assertion sit close together —
+but the direction of travel is what matters: hot-path code earns value
+assertions.
 
 ## Known weak areas
 

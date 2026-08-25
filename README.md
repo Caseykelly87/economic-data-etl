@@ -4,10 +4,10 @@
 
 A Python ETL repository containing two pipelines that share infrastructure but address different data domains:
 
-- **Macro pipeline** — ingests 15 U.S. macroeconomic indicators from FRED and BLS, plus 8 food-category CPI forecast series from USDA ERS, normalizes them into a tidy long-format schema, lands them in a `raw` zone, and builds the `staging` and domain-mart layers (`public_analytics.mart_*`) the API serves.
+- **Macro pipeline** — ingests 23 monthly U.S. macroeconomic series from FRED and BLS (including the food-category CPI indexes the sim engine's realism layer consumes), plus 8 annual food-price forecast series from USDA ERS, normalizes them into a tidy long-format schema, lands them in a `raw` zone, and builds the `staging` and domain-mart layers (`public_analytics.mart_*`) the API serves.
 - **Grocery pipeline** — ingests CSV output from the upstream [simulation engine](https://github.com/Caseykelly87/Knot-shore-grocery-simulation-engine), validates schemas, applies detection rules, and produces canonical parquet artifacts that downstream API and portal repositories consume.
 
-Both pipelines share configuration, structured logging, and CI. The repository contains 305 tests covering both, with no live API calls or database connections in the test suite.
+Both pipelines share configuration, structured logging, and CI. The test suite covers both, with no live API calls or database connections.
 
 ## Table of contents
 
@@ -100,7 +100,7 @@ python -m src.detect_cli \
 ### Run all tests
 
 ```bash
-python -m pytest -q                            # 287 tests, no live api or db calls
+python -m pytest -q                            # full suite, no live api or db calls
 python -m pytest --cov=src                     # with coverage
 python -m pytest tests/test_detect_rules.py    # single file
 ```
@@ -150,7 +150,7 @@ The marts build is a full refresh (delete then insert-select from staging), so i
 | `MONEY_COST` | `FEDFUNDS` | Federal Funds Effective Rate |
 | `GROCERY_SALES_MO` | `MSRSMO445` | Missouri Food & Beverage Stores retail sales, YoY % change (NAICS 445) |
 
-#### BLS series (5 indicators, batch request)
+#### BLS series (13 indicators, batch request)
 
 | Key | Series ID | Description |
 |---|---|---|
@@ -159,23 +159,33 @@ The marts build is a full refresh (delete then insert-select from staging), so i
 | `GAS_PRICE` | `APU000074714` | Average retail price: gasoline |
 | `AVG_WAGES` | `CES0500000003` | Average Hourly Earnings, All Employees |
 | `WAGE_INDEX` | `CIU2020000000000I` | Employment Cost Index |
+| `ERS_ALL_FOOD` | `CUUR0000SAF1` | CPI: Food |
+| `ERS_FOOD_HOME` | `CUUR0000SAF11` | CPI: Food at home |
+| `ERS_FOOD_AWAY` | `CUUR0000SEFV` | CPI: Food away from home |
+| `ERS_CEREALS` | `CUUR0000SAF111` | CPI: Cereals and bakery products |
+| `ERS_MEATS` | `CUUR0000SAF112` | CPI: Meats, poultry, fish, and eggs |
+| `ERS_DAIRY` | `CUUR0000SEFJ` | CPI: Dairy and related products |
+| `ERS_FRUITS_VEG` | `CUUR0000SAF113` | CPI: Fruits and vegetables |
+| `ERS_BEVERAGES` | `CUUR0000SAF114` | CPI: Nonalcoholic beverages |
 
-#### USDA ERS food-price categories (8 series)
+The eight food-category CPI series carry an `ERS_` prefix even though the data comes from BLS: the sim engine's realism layer queries the database by these exact `series_name` values, and the names predate the platform's switch from the USDA ERS Food Price Outlook to the underlying BLS monthly indexes. The realism layer's multiplier math needs monthly index levels, which is what these supply.
 
-The USDA Economic Research Service publishes a monthly Food Price Outlook CSV with year-over-year CPI forecasts across eight food categories. `ERS_CATEGORY_MAP` in `src/config.py` maps the CSV's category strings to the internal `series_id` values stored in `dim_series` and `fact_economic_observations`:
+#### USDA ERS food-price forecasts (8 series)
 
-| Series ID | Source category (CSV) | Description |
-|---|---|---|
-| `ERS_ALL_FOOD` | `All food` | Combined at-home and away-from-home |
-| `ERS_FOOD_HOME` | `Food at home` | Groceries for at-home consumption |
-| `ERS_FOOD_AWAY` | `Food away from home` | Restaurants and prepared meals |
-| `ERS_CEREALS` | `Cereals and bakery products` | Cereals and bakery products |
-| `ERS_MEATS` | `Meats, poultry, and fish` | Meats, poultry, and fish |
-| `ERS_DAIRY` | `Dairy products` | Dairy products |
-| `ERS_FRUITS_VEG` | `Fruits and vegetables` | Fresh fruits and vegetables |
-| `ERS_BEVERAGES` | `Nonalcoholic beverages and beverage materials` | Nonalcoholic beverages |
+The USDA Economic Research Service publishes a monthly Food Price Outlook CSV with *annual* year-over-year CPI forecasts across eight food categories — a different granularity from the monthly CPI indexes above, which is why these live under distinct `ERS_FORECAST_*` names. `ERS_CATEGORY_MAP` in `src/config.py` maps the CSV's category strings to the internal `series_id` values stored in `dim_series` and `fact_economic_observations`:
 
-The `ERS_` prefix marks the upstream source; the data is sourced directly from USDA ERS, not BLS. The CSV is loaded as a single batch — `ERS_SUMMARY_URL` in `src/config.py` points at the food-price-outlook landing page, and `src/extract.py` discovers the current monthly CSV URL by scraping that page (ERS rotates the media ID on every publication; a hard-coded fallback URL in `extract.py` covers discovery failures).
+| Series ID | Source category (CSV) |
+|---|---|
+| `ERS_FORECAST_ALL_FOOD` | `All food` |
+| `ERS_FORECAST_FOOD_HOME` | `Food at home` |
+| `ERS_FORECAST_FOOD_AWAY` | `Food away from home` |
+| `ERS_FORECAST_CEREALS` | `Cereals and bakery products` |
+| `ERS_FORECAST_MEATS` | `Meats, poultry, and fish` |
+| `ERS_FORECAST_DAIRY` | `Dairy products` |
+| `ERS_FORECAST_FRUITS_VEG` | `Fruits and vegetables` |
+| `ERS_FORECAST_BEVERAGES` | `Nonalcoholic beverages and beverage materials` |
+
+The CSV is loaded as a single batch — `ERS_SUMMARY_URL` in `src/config.py` points at the food-price-outlook landing page, and `src/extract.py` discovers the current monthly CSV URL by scraping that page (ERS rotates the media ID on every publication; a hard-coded fallback URL in `extract.py` covers discovery failures).
 
 To add or remove series, edit `FRED_SERIES`, `BLS_SERIES`, or `ERS_CATEGORY_MAP` in `src/config.py`. No other files need to change.
 
@@ -193,8 +203,8 @@ The source-adapter / transform separation is the basic discipline of pipeline en
 
 ```
 output/
-├── daily/{MM}/{DD}/{YYYY}/store_summary.csv
-├── daily/{MM}/{DD}/{YYYY}/department_sales.csv
+├── daily/{YYYY}/{MM}/{DD}/store_summary.csv
+├── daily/{YYYY}/{MM}/{DD}/department_sales.csv
 └── dimensions/dim_stores.csv
 ```
 
@@ -280,19 +290,19 @@ Four canonical parquet artifacts and one JSON measurement artifact produced by r
 
 | File | Rows × Cols | Notes |
 |---|---:|---|
-| `store_daily_metrics.parquet` | 2,944 × 6 | 8 stores × 184 days × 2 years (paired-year canonical) |
-| `department_daily_metrics.parquet` | 29,414 × 7 | Same window across 10 departments per store-day |
+| `store_daily_metrics.parquet` | 5,848 × 6 | 8 stores × 731 days (two full calendar years) |
+| `department_daily_metrics.parquet` | 58,424 × 7 | Same window across 10 departments per store-day |
 | `dim_stores.parquet` | 8 × 10 | One row per store with identification, location, and base_daily_revenue |
-| `anomaly_flags.parquet` | 178 × 9 | 27 info, 150 warning, 1 critical |
+| `anomaly_flags.parquet` | 343 × 9 | One row per fired detection rule per store-day |
 | `detection_quality.json` | — | Recall, false-positive rate, per-anomaly-type recall, and the phase 2 contract verdict measured against the sim engine's ground-truth `anomaly_log.csv`. |
 
-**`store_daily_metrics.parquet`** spans two paired six-month windows: 2024-07-01 through 2024-12-31 and 2025-07-01 through 2025-12-31, each covering all 8 stores. The 2025 window is the demo dataset surfaced by the dashboard; the 2024 window enables year-over-year comparison views consumed by the portal's store drilldown via the API's existing `start_date` / `end_date` query parameters. Filtering this parquet to the 2025 window yields 1,472 rows. Columns: `date`, `store_id`, `total_sales`, `transaction_count`, `avg_basket_size`, `labor_cost_pct`.
+**`store_daily_metrics.parquet`** spans the canonical two-year window, 2024-01-01 through 2025-12-31 (731 days: 2024 is a leap year), covering all 8 stores. 2025 is the demo year surfaced by the dashboard; the full prior year enables year-over-year comparison views consumed by the portal's store drilldown via the API's existing `start_date` / `end_date` query parameters. Filtering this parquet to 2025 yields 2,920 rows. Columns: `date`, `store_id`, `total_sales`, `transaction_count`, `avg_basket_size`, `labor_cost_pct`.
 
-**`department_daily_metrics.parquet`** spans the same two paired windows across all 8 stores and all 10 departments. The upper bound is 29,440 rows (8 × 10 × 184 × 2); the actual count is 29,414 because some store-day-department combinations are missing from the sim engine's output (a department closed for inventory or an opening-day register gap). Columns: `date`, `store_id`, `department_id`, `net_sales`, `transactions`, `units_sold`, `gross_margin_pct` (preserved as a fraction; the portal's display layer handles percent formatting). Rows are sorted by `(date, store_id, department_id)`.
+**`department_daily_metrics.parquet`** spans the same window across all 8 stores and all 10 departments. A complete tree would hold 58,480 rows (8 × 10 × 731); the actual count is 58,424 because the sim engine injects data-integrity anomalies into its own output — 83 store-days are missing a department row and 27 carry a duplicated one (−83 +27 = −56). Those irregularities are deliberate: they are part of the ground truth the detection layer is measured against. Columns: `date`, `store_id`, `department_id`, `net_sales`, `transactions`, `units_sold`, `gross_margin_pct` (preserved as a fraction; the portal's display layer handles percent formatting). Rows are sorted by `(date, store_id, department_id)`.
 
 **`dim_stores.parquet`** is the canonical store reference dataset: 8 rows in `store_id` order. Columns: `store_id`, `store_name`, `address`, `city`, `zip`, `county_fips`, `trade_area_profile`, `sqft`, `open_date`, `base_daily_revenue`. Only `store_id` is type-coerced (to `int64`); other columns pass through as pandas reads them — `zip`, `county_fips`, `sqft` are `int64`; `open_date` is a string in `YYYY-MM-DD` form; `base_daily_revenue` is `float64`.
 
-**`anomaly_flags.parquet`** is the `detect_cli` output: the five statistical-band rules and `revenue_zscore_28d` run against the store-day metrics, while `department_coverage`, `gross_margin_band`, and `department_reconciliation` run against the department metrics. Detection runs across both the 2024 and 2025 windows; the `yoy_comp` rule fires only where a prior-year baseline exists, and `revenue_zscore_28d` fires only after a store has at least 14 prior observations. Of the 178 rows, 124 are department-grain flags (52 `department_coverage`, 72 `department_reconciliation`), 24 are `gross_margin_band` flags, and 30 are store-day value-and-rolling flags (18 `transactions_band`, 1 `yoy_comp`, 11 `revenue_zscore_28d`). With the value bands widened to the natural-variance envelope, `revenue_band`, `labor_pct_band`, and `avg_ticket_band` fire nothing on the canonical.
+**`anomaly_flags.parquet`** is the `detect_cli` output: the five statistical-band rules and `revenue_zscore_28d` run against the store-day metrics, while `department_coverage`, `gross_margin_band`, and `department_reconciliation` run against the department metrics. The `yoy_comp` rule fires only where a prior-year baseline exists (all of 2025, since 2024 is fully covered), and `revenue_zscore_28d` fires only after a store has at least 14 prior observations. Of the 343 rows, 251 are department-grain flags (110 `department_coverage`, 141 `department_reconciliation`), 48 are `gross_margin_band` flags, and 44 are store-day value-and-rolling flags (22 `transactions_band`, 2 `yoy_comp`, 20 `revenue_zscore_28d`). With the value bands widened to the natural-variance envelope, `revenue_band`, `labor_pct_band`, and `avg_ticket_band` fire nothing on the canonical.
 
 **`detection_quality.json`** is the output of `scripts/evaluate_detection.py` against the canonical parquets and the sim engine's ground-truth anomaly log. It captures global recall, false-positive rate, per-anomaly-type recall, and the counts behind them in a stable shape downstream consumers can render directly — the API exposes it at `/insights/detection-quality` and the portal renders the verdict on an about-page. The script that produces these numbers is isolated from `src/` by social contract: only `scripts/evaluate_detection.py` reads the ground-truth log, so the JSON is a real measurement rather than an answer-key lookup.
 
@@ -336,7 +346,7 @@ Ad-hoc parquet output produced by running `sim_cli` or `detect_cli` directly (e.
 │   │   └── canonical/          # Committed canonical parquet artifacts
 │   └── raw/                    # Immutable raw JSON snapshots from FRED/BLS/ERS
 ├── config/
-│   └── detection_rules.yaml    # Threshold declarations for the 7 detection rules
+│   └── detection_rules.yaml    # Threshold declarations for the detection rules
 ├── scripts/
 │   ├── build_canonical_fixtures.py    # Regenerate canonical parquets end-to-end
 │   ├── evaluate_detection.py          # Measure detection recall/fpr against ground truth
@@ -359,25 +369,25 @@ Ad-hoc parquet output produced by running `sim_cli` or `detect_cli` directly (e.
 │   └── detect_cli.py           # Grocery-side cli: canonical -> anomaly flags
 ├── tests/
 │   ├── conftest.py
-│   ├── test_extract.py                    # 33 tests — macro extract + idempotency
-│   ├── test_transform.py                  # 45 tests — macro transform + edge cases
-│   ├── test_load.py                       # 16 tests — schema, upsert, idempotency
-│   ├── test_marts.py                      # 17 tests — staging/marts build, routing, contract
-│   ├── test_main.py                       # 17 tests — macro pipeline orchestration
-│   ├── test_observability.py              # 3 tests — shared logging configurator
-│   ├── test_sim_ingest.py                 # 16 tests — store-grain csv adapter
-│   ├── test_sim_ingest_department.py      # 12 tests — department-grain csv adapter
-│   ├── test_sim_transform.py              # 20 tests — store-grain transforms
-│   ├── test_sim_transform_department.py   # 12 tests — department-grain transforms
-│   ├── test_sim_cli.py                    # 11 tests — grocery cli orchestration
-│   ├── test_sim_integration.py            # 8 tests — end-to-end ingest happy path
-│   ├── test_sim_engine_contract.py        # 3 tests — sim engine output contract
-│   ├── test_detect_rules.py               # 57 tests — rule logic + edge cases
-│   ├── test_detect_cli.py                 # 13 tests — detect cli orchestration
-│   ├── test_detect_integration.py         # 8 tests — end-to-end detection
-│   ├── test_detect_structural_contract.py # 4 tests — structural-integrity rule contract
-│   ├── test_build_canonical_fixtures.py   # 9 tests — canonical regeneration script
-│   └── test_docs_count.py                  # 1 test — readme count vs collected drift guard
+│   ├── test_extract.py                    # Macro extract + idempotency
+│   ├── test_transform.py                  # Macro transform + edge cases
+│   ├── test_load.py                       # Schema, upsert, idempotency
+│   ├── test_marts.py                      # Staging/marts build, routing, contract
+│   ├── test_main.py                       # Macro pipeline orchestration
+│   ├── test_observability.py              # Shared logging configurator
+│   ├── test_realism_series_contract.py    # Macro catalog supplies the sim realism series
+│   ├── test_sim_ingest.py                 # Store-grain csv adapter
+│   ├── test_sim_ingest_department.py      # Department-grain csv adapter
+│   ├── test_sim_transform.py              # Store-grain transforms
+│   ├── test_sim_transform_department.py   # Department-grain transforms
+│   ├── test_sim_cli.py                    # Grocery cli orchestration
+│   ├── test_sim_integration.py            # End-to-end ingest happy path
+│   ├── test_sim_engine_contract.py        # Sim engine output contract
+│   ├── test_detect_rules.py               # Rule logic + edge cases
+│   ├── test_detect_cli.py                 # Detect cli orchestration
+│   ├── test_detect_integration.py         # End-to-end detection
+│   ├── test_detect_structural_contract.py # Structural-integrity rule contract
+│   └── test_build_canonical_fixtures.py   # Canonical regeneration script
 ├── .env                        # API keys — never commit
 ├── .gitignore
 ├── pytest.ini
@@ -465,7 +475,7 @@ On Windows, stdout defaults to cp1252 encoding which can't render some non-ASCII
 ## Testing
 
 ```bash
-python -m pytest -q                              # all 287 tests
+python -m pytest -q                              # full suite
 python -m pytest -v                              # verbose
 python -m pytest --cov=src                       # with coverage
 python -m pytest tests/test_detect_rules.py      # single file

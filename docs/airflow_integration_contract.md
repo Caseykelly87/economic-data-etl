@@ -71,7 +71,7 @@ disk.
 **Public entry points**
 
 - `load_store_summaries(root: Path) -> Iterator[StoreSummaryRecord]` —
-  walks `{root}/daily/{MM}/{DD}/{YYYY}/store_summary.csv` in sorted
+  walks `{root}/daily/{YYYY}/{MM}/{DD}/store_summary.csv` in sorted
   order and yields one typed record per CSV row.
 - `load_department_sales(root: Path) -> Iterator[DepartmentSalesRecord]` —
   same walk pattern, reading `department_sales.csv` from each date
@@ -85,8 +85,8 @@ disk.
 **Data contract**
 
 - Reads (paths relative to the `root` argument):
-  `daily/{MM}/{DD}/{YYYY}/store_summary.csv`,
-  `daily/{MM}/{DD}/{YYYY}/department_sales.csv`,
+  `daily/{YYYY}/{MM}/{DD}/store_summary.csv`,
+  `daily/{YYYY}/{MM}/{DD}/department_sales.csv`,
   `dimensions/dim_stores.csv`.
 - Returns: lazy iterators of `StoreSummaryRecord` /
   `DepartmentSalesRecord` (defined in `src.schemas`); `pd.DataFrame`
@@ -239,8 +239,8 @@ shape below. The boundary is documented in this repo's README at the
 
 ```
 output/
-├── daily/{MM}/{DD}/{YYYY}/store_summary.csv
-├── daily/{MM}/{DD}/{YYYY}/department_sales.csv
+├── daily/{YYYY}/{MM}/{DD}/store_summary.csv
+├── daily/{YYYY}/{MM}/{DD}/department_sales.csv
 └── dimensions/dim_stores.csv
 ```
 
@@ -264,7 +264,7 @@ under `src/`.
 
 | Layer transition                              | File(s) and format(s) at the boundary                                                                |
 |-----------------------------------------------|------------------------------------------------------------------------------------------------------|
-| sim engine → `sim_ingest` input               | `output/daily/{MM}/{DD}/{YYYY}/{store_summary,department_sales}.csv`, `output/dimensions/dim_stores.csv` |
+| sim engine → `sim_ingest` input               | `output/daily/{YYYY}/{MM}/{DD}/{store_summary,department_sales}.csv`, `output/dimensions/dim_stores.csv` |
 | `sim_ingest` → `sim_transform` input          | In-memory `Iterable[StoreSummaryRecord]` / `Iterable[DepartmentSalesRecord]` + `dim_stores` DataFrame |
 | `sim_transform` output                        | In-memory `pd.DataFrame` matching `STORE_DAILY_METRICS_COLUMNS` / `DEPARTMENT_DAILY_METRICS_COLUMNS`  |
 | `sim_cli` writes (canonical artifacts)        | `store_daily_metrics.parquet`, `department_daily_metrics.parquet`, `dim_stores.parquet` (pyarrow)    |
